@@ -1,0 +1,480 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-invigilator-dashboard",
+    "name": "Invigilator Dashboard API",
+    "description": "Complete invigilator flow for the Digital Examination Attendance System.\n\n**Happy-path order**\n1. Login\n2. Dashboard\n3. My assignments\n4. Start examination session\n5. Lookup student\n6. Check in\n7. Attendance register / summary\n8. Report incident\n9. List incidents\n10. End examination session (or wait for auto-complete at end_time)\n11. Generate report (optional)\n\n**Seed account**\n- Email: `invigilator@unza.zm`\n- Password: `Invig@2026`\n- Default examSessionId: `5` (CS101)\n- Default venueId: `16` (Main LT 1)\n- Students allocated there: `2022004264`, `2022004265`, `2022004266`\n\nAll authenticated requests use Bearer `{{accessToken}}` (auto-saved by Login).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "1. Auth",
+      "item": [
+        {
+          "name": "Login as Invigilator",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login succeeded', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "  pm.expect(body.data.accessToken).to.be.a('string');",
+                  "  pm.environment.set('accessToken', body.data.accessToken);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Returns `{ success, message, data: { accessToken, refreshToken } }`.\n\nFrontend: store `accessToken` and send as `Authorization: Bearer <token>` on every later call."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Dashboard",
+      "item": [
+        {
+          "name": "Get Invigilator Dashboard",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Dashboard loaded', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "  pm.expect(body.data).to.have.keys(",
+                  "    'assignedExaminations', 'assignedVenues', 'checkedInStudents',",
+                  "    'absentStudents', 'scriptsCollected', 'incidents'",
+                  "  );",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/dashboard/invigilator",
+            "description": "Scoped to the logged-in invigilator's seeded assignments.\n\nResponse `data` fields:\n- assignedExaminations\n- assignedVenues\n- checkedInStudents\n- absentStudents\n- scriptsCollected\n- incidents (real incident count, not non-PRESENT attendance)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Assignments",
+      "item": [
+        {
+          "name": "List My Assignments",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Assignments returned', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "  pm.expect(body.data).to.be.an('array');",
+                  "  if (body.data.length > 0) {",
+                  "    // Prefer Main LT 1 (venue 16) — demo students 2022004264/65/66 are allocated there.",
+                  "    // Auto-picking Natural Science Hall caused WRONG_VENUE / failed inserts before the status fix.",
+                  "    const preferred = body.data.find(a => a.venueId === 16 || a.venueName === 'Main LT 1') || body.data[0];",
+                  "    pm.environment.set('examSessionId', String(preferred.examSessionId));",
+                  "    pm.environment.set('venueId', String(preferred.venueId));",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/invigilator/assignments",
+            "description": "Returns only exams/venues assigned to this invigilator.\n\nEach item includes: examSessionId, courseCode, examDate, startTime, endTime, examStatus, venueId, venueName, building, capacity, and lecturers[] (staffId, staffNo, fullName, email, department).\n\nFrontend: use this list to populate exam/venue selectors — do not invent IDs. Display lecturer fullName/email so invigilators know which lecturer the exam belongs to."
+          }
+        },
+        {
+          "name": "Start Examination Session",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Session started or already in progress', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "  pm.expect(body.data.examStatus).to.eql('IN_PROGRESS');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/invigilator/assignments/{{examSessionId}}/{{venueId}}/start",
+            "description": "Marks the exam session status as `IN_PROGRESS`.\nFails with 400 if the invigilator is not assigned to that exam+venue."
+          }
+        },
+        {
+          "name": "End Examination Session",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Session ended', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "  pm.expect(body.data.examStatus).to.eql('COMPLETED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/invigilator/assignments/{{examSessionId}}/{{venueId}}/end",
+            "description": "Marks the exam session status as `COMPLETED` and records ABSENT for allocated students with no attendance.\n\nAlso runs automatically every ~30s when `exam_date` + `end_time` has passed for `IN_PROGRESS` exams.\nFails with 400 if not assigned; 409-style IllegalState if session was never started.\nIdempotent if already COMPLETED."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Check-in",
+      "item": [
+        {
+          "name": "Lookup Student by Computer Number",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Student lookup succeeded', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "  pm.expect(body.data).to.include.keys(",
+                  "    'computerNumber', 'fullName', 'program', 'photoPath',",
+                  "    'allocatedVenueId', 'allocatedVenueName', 'seatNumber', 'alreadyCheckedIn'",
+                  "  );",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/attendance/lookup?computerNumber={{computerNumber}}&examSessionId={{examSessionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "attendance", "lookup"],
+              "query": [
+                {
+                  "key": "computerNumber",
+                  "value": "{{computerNumber}}"
+                },
+                {
+                  "key": "examSessionId",
+                  "value": "{{examSessionId}}"
+                }
+              ]
+            },
+            "description": "MVP verification preview before check-in.\n\nReturns photo, name, computer number, programme, allocated venue, seat, and alreadyCheckedIn.\n\nFrontend UX: show this card, let invigilator visually verify, then call Check In."
+          }
+        },
+        {
+          "name": "Check In Student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Check-in accepted or duplicate blocked', function () {",
+                  "  const code = pm.response.code;",
+                  "  pm.expect([200, 409]).to.include(code);",
+                  "  const body = pm.response.json();",
+                  "  if (code === 200) {",
+                  "    pm.expect(body.success).to.eql(true);",
+                  "    pm.expect(body.data.attendanceStatus).to.be.oneOf(['PRESENT', 'WRONG_VENUE']);",
+                  "  } else {",
+                  "    pm.expect(body.success).to.eql(false);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"computerNumber\": \"{{computerNumber}}\",\n  \"examSessionId\": {{examSessionId}},\n  \"venueId\": {{venueId}},\n  \"verificationMethod\": \"COMPUTER\"\n}"
+            },
+            "url": "{{baseUrl}}/api/attendance/check-in",
+            "description": "Records attendance for the logged-in invigilator.\n\n**Important:** `venueId` must be the student's allocated venue for a clean PRESENT check-in.\nDemo students `2022004264` / `2022004265` / `2022004266` are at Main LT 1 → `venueId = 16`.\nIf you check in at a different assigned venue (e.g. 19), status becomes `WRONG_VENUE`.\n\n- 200 on first check-in\n- 409 if already checked in for that exam\n- 400 if not assigned / student not allocated\n\nMVP verificationMethod: `COMPUTER`.\nFuture: `QR_CODE`, `FACIAL_RECOGNITION`.\n\nAfter DB reset (V14), demo exam attendance is cleared so you can check these students in again."
+          }
+        },
+        {
+          "name": "Check In Alternate Student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Alternate check-in ok or duplicate', function () {",
+                  "  pm.expect([200, 409]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"computerNumber\": \"{{computerNumberAlt}}\",\n  \"examSessionId\": {{examSessionId}},\n  \"venueId\": {{venueId}},\n  \"verificationMethod\": \"COMPUTER\"\n}"
+            },
+            "url": "{{baseUrl}}/api/attendance/check-in",
+            "description": "Second student (`2022004266`) allocated to the same Main LT 1 venue for repeatable testing."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Attendance Register",
+      "item": [
+        {
+          "name": "List Attendance for Exam",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Attendance list returned', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/attendance/exam/{{examSessionId}}",
+            "description": "Full attendance register for an exam session.\n\nReturns a flat DTO list (not nested entities): computerNumber, studentName, venueName, attendanceStatus, checkInTime, etc."
+          }
+        },
+        {
+          "name": "Attendance Summary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Summary returned', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/attendance/exam/{{examSessionId}}/summary",
+            "description": "Present / absent / scripts summary for the exam."
+          }
+        },
+        {
+          "name": "Mark Scripts Collected",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Scripts updated', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"count\": 2\n}"
+            },
+            "url": "{{baseUrl}}/api/attendance/exam/{{examSessionId}}/scripts-collected",
+            "description": "Marks scripts submitted for attendance rows of this exam when count > 0."
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Incidents",
+      "item": [
+        {
+          "name": "Report Incident",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Incident reported', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "  pm.expect(body.data.incidentId).to.be.a('number');",
+                  "  pm.environment.set('lastIncidentId', String(body.data.incidentId));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"examSessionId\": {{examSessionId}},\n  \"venueId\": {{venueId}},\n  \"computerNumber\": \"{{computerNumber}}\",\n  \"incidentType\": \"PHONE_FOUND\",\n  \"description\": \"Phone found under the desk during the examination.\",\n  \"severity\": \"MAJOR\",\n  \"evidencePath\": \"/evidence/phone-found-001.jpg\"\n}"
+            },
+            "url": "{{baseUrl}}/api/incidents",
+            "description": "Invigilators only.\n\nAllowed `incidentType` values:\n- CHEATING\n- PHONE_FOUND\n- WRONG_VENUE\n- MEDICAL_EMERGENCY\n- DISTURBANCE\n- LATE_ARRIVAL\n- OTHER\n\n`severity`: MINOR | MAJOR | CRITICAL\n`computerNumber` and `evidencePath` are optional.\n\nAdmin can later see these via GET /api/incidents and the admin dashboard count. PDF download is not in this phase."
+          }
+        },
+        {
+          "name": "List Incidents (My Scope)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Incidents listed', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().data).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/incidents",
+            "description": "For invigilators: incidents for exams they are assigned to.\nFor administrators: all incidents."
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Reports",
+      "item": [
+        {
+          "name": "Generate Exam Attendance Report",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Report generated', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/reports/exam-session/{{examSessionId}}",
+            "description": "Generates an attendance PDF report metadata record for an assigned exam.\nInvigilator must be assigned to the exam. Download endpoint is admin-side / later work."
+          }
+        }
+      ]
+    }
+  ]
+}

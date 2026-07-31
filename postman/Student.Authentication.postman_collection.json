@@ -1,0 +1,324 @@
+{
+  "info": {
+    "_postman_id": "b2c3d4e5-student-auth-phase1",
+    "name": "Student Authentication API",
+    "description": "Phase 1 – Student Authentication for the Digital Examination Attendance System.\n\nStudents cannot self-register. An account can only be activated for a row that already exists in the `student` table, using computer number + national ID (NRC).\n\n**Recommended order**\n1. Activate Account\n2. Login\n3. Get Profile (uses Bearer token from Login)\n4. Refresh Token (optional)\n\n**Seed demo student (not activated by default)**\n- Computer number: `2022004265`\n- National ID (NRC): `1234567891`\n- Suggested password: `Password1`\n\nOther 10-digit computer numbers: `2022004264` … `2022004283` (20 students).\n\n**Notes**\n- Computer number must be exactly 10 digits (`YYYY######`).\n- Password must be at least 8 characters.\n- Login returns access + refresh JWT and basic profile.\n- Profile requires a valid student access token with role `STUDENT`.\n- All responses use `{ success, message, data }`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "computerNumber",
+      "value": "2022004265"
+    },
+    {
+      "key": "nationalId",
+      "value": "1234567891"
+    },
+    {
+      "key": "password",
+      "value": "Password1"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "refreshToken",
+      "value": ""
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "1. Auth",
+      "description": "Public student authentication endpoints. No Bearer token required.",
+      "item": [
+        {
+          "name": "Activate Account",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Activation succeeded or already activated', function () {",
+                  "  const status = pm.response.code;",
+                  "  const body = pm.response.json();",
+                  "  pm.expect([200, 409]).to.include(status);",
+                  "  if (status === 200) {",
+                  "    pm.expect(body.success).to.eql(true);",
+                  "    pm.expect(body.data.accountActivated).to.eql(true);",
+                  "    pm.expect(body.data.computerNumber).to.eql(pm.variables.get('computerNumber'));",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"computerNumber\": \"{{computerNumber}}\",\n  \"nationalId\": \"{{nationalId}}\",\n  \"password\": \"{{password}}\",\n  \"confirmPassword\": \"{{password}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/student/auth/activate",
+            "description": "Activates a student account that already exists in the database.\n\n**What it does**\n- Looks up the student by computer number + national ID (NRC).\n- Rejects the request if no matching student exists.\n- Rejects if the account is already activated (HTTP 409).\n- Rejects if password and confirmPassword do not match.\n- Hashes the password with BCrypt, marks the account activated, and stores `activated_at`.\n\n**Request body**\n| Field | Required | Notes |\n|-------|----------|-------|\n| computerNumber | yes | Exactly 10 digits, e.g. `2022004265` |\n| nationalId | yes | Must match `student.national_id` |\n| password | yes | Min 8 characters |\n| confirmPassword | yes | Must equal password |\n\n**Success response `data`**\n- computerNumber, fullName, school, programme, currentYear, accountStatus, accountActivated\n\n**Does not** return JWT tokens — call Login next."
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login succeeded', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "  pm.expect(body.data.accessToken).to.be.a('string');",
+                  "  pm.expect(body.data.refreshToken).to.be.a('string');",
+                  "  pm.expect(body.data.profile).to.be.an('object');",
+                  "  pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', body.data.refreshToken);",
+                  "  if (pm.environment.get('accessToken') !== undefined) {",
+                  "    pm.environment.set('accessToken', body.data.accessToken);",
+                  "  }",
+                  "  if (pm.environment.get('refreshToken') !== undefined) {",
+                  "    pm.environment.set('refreshToken', body.data.refreshToken);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"computerNumber\": \"{{computerNumber}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/student/auth/login",
+            "description": "Authenticates an activated student and issues JWT tokens.\n\n**What it does**\n- Finds the student by computer number.\n- Requires the account to be activated first.\n- Verifies the password against the stored BCrypt hash.\n- Issues a JWT access token (role `STUDENT`) and a refresh token.\n- Persists the refresh token for later rotation.\n- Returns basic profile data with the tokens.\n\n**Request body**\n| Field | Required | Notes |\n|-------|----------|-------|\n| computerNumber | yes | 10-digit student number |\n| password | yes | Account password |\n\n**Success response `data`**\n- accessToken — short-lived Bearer token for API calls\n- refreshToken — longer-lived token for obtaining a new access token\n- profile — computerNumber, fullName, school, programme, currentYear, accountStatus, accountActivated\n\n**Common errors**\n- Invalid credentials\n- Account has not been activated\n\nThis request auto-saves `accessToken` and `refreshToken` into collection (and environment) variables."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Token refreshed', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "  pm.expect(body.data.accessToken).to.be.a('string');",
+                  "  pm.expect(body.data.refreshToken).to.be.a('string');",
+                  "  pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', body.data.refreshToken);",
+                  "  if (pm.environment.get('accessToken') !== undefined) {",
+                  "    pm.environment.set('accessToken', body.data.accessToken);",
+                  "  }",
+                  "  if (pm.environment.get('refreshToken') !== undefined) {",
+                  "    pm.environment.set('refreshToken', body.data.refreshToken);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/student/auth/refresh",
+            "description": "Exchanges a valid student refresh token for a new access + refresh token pair.\n\n**What it does**\n- Validates the refresh token (signature, expiry, not revoked, belongs to a student).\n- Revokes the used refresh token (rotation).\n- Issues a fresh access token and refresh token.\n- Returns the same profile shape as Login.\n\n**Request body**\n| Field | Required | Notes |\n|-------|----------|-------|\n| refreshToken | yes | From the previous Login or Refresh response |\n\n**When to use**\nCall this when the access token expires (default ~5 minutes) instead of forcing the student to log in again.\n\n**Common errors**\n- Invalid refresh token\n- Refresh token expired or revoked\n\nAuto-saves the new tokens into collection/environment variables."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Profile",
+      "description": "Authenticated student profile endpoints. Requires Bearer `{{accessToken}}` from Login.",
+      "item": [
+        {
+          "name": "Get Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Profile retrieved', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "  pm.expect(body.data).to.include.keys(",
+                  "    'computerNumber', 'fullName', 'school', 'programme',",
+                  "    'currentYear', 'accountStatus', 'accountActivated'",
+                  "  );",
+                  "  pm.expect(body.data).to.not.have.property('passwordHash');",
+                  "  pm.expect(body.data).to.not.have.property('nationalId');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/student/profile",
+            "description": "Returns the authenticated student's basic profile.\n\n**What it does**\n- Resolves the student from the JWT subject (computer number).\n- Requires role/authority `STUDENT`.\n- Returns non-sensitive profile fields only.\n\n**Auth**\n`Authorization: Bearer {{accessToken}}`\n\n**Success response `data`**\n| Field | Meaning |\n|-------|---------|\n| computerNumber | Student number |\n| fullName | Full name |\n| school | School / faculty |\n| programme | Programme of study |\n| currentYear | Year of study |\n| accountStatus | Academic status (`ACTIVE`, `SUSPENDED`, etc.) |\n| accountActivated | Whether the auth account is activated |\n\n**Not exposed**\nPassword hash, national ID, QR token, or other internal security fields."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Negative cases",
+      "description": "Useful failure scenarios to verify validation and error handling.",
+      "item": [
+        {
+          "name": "Activate — password mismatch",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"computerNumber\": \"2022004272\",\n  \"nationalId\": \"1234567898\",\n  \"password\": \"Password1\",\n  \"confirmPassword\": \"Password2\"\n}"
+            },
+            "url": "{{baseUrl}}/api/student/auth/activate",
+            "description": "Expect HTTP 400.\n\n**What it checks**\nPassword and confirmPassword must be identical. Useful for confirming client-side and server-side validation behave the same.\n\nExpected message: `Password and confirm password do not match`."
+          }
+        },
+        {
+          "name": "Activate — student not found",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"computerNumber\": \"2022004265\",\n  \"nationalId\": \"WRONG-NRC\",\n  \"password\": \"Password1\",\n  \"confirmPassword\": \"Password1\"\n}"
+            },
+            "url": "{{baseUrl}}/api/student/auth/activate",
+            "description": "Expect HTTP 400.\n\n**What it checks**\nActivation only works when both computer number and national ID match an existing student row. Free registration is not allowed.\n\nExpected message: `No student found with the provided computer number and national ID`."
+          }
+        },
+        {
+          "name": "Activate — invalid computer number format",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"computerNumber\": \"CS-2023-001\",\n  \"nationalId\": \"1234567891\",\n  \"password\": \"Password1\",\n  \"confirmPassword\": \"Password1\"\n}"
+            },
+            "url": "{{baseUrl}}/api/student/auth/activate",
+            "description": "Expect HTTP 400 validation error.\n\n**What it checks**\nLegacy formats like `CS-2023-001` are rejected. Computer number must be 10 digits starting with a four-digit year (`^\\d{4}\\d{6}$`).\n\nExpected message includes: `Computer number must be 10 digits and start with a four-digit year`."
+          }
+        },
+        {
+          "name": "Login — account not activated",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"computerNumber\": \"2022004283\",\n  \"password\": \"Password1\"\n}"
+            },
+            "url": "{{baseUrl}}/api/student/auth/login",
+            "description": "Expect HTTP 400 (assuming `2022004283` was never activated).\n\n**What it checks**\nStudents must activate before they can log in, even if the computer number exists in the database.\n\nExpected message: `Account has not been activated`."
+          }
+        },
+        {
+          "name": "Get Profile — missing token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/student/profile",
+            "description": "Expect HTTP 401/403.\n\n**What it checks**\nProfile is not public. A valid student Bearer token is required."
+          }
+        }
+      ]
+    }
+  ]
+}
