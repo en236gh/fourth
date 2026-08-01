@@ -3,6 +3,8 @@ package com.backend.fourth.attendance.controller;
 import com.backend.fourth.attendance.dto.AttendanceCheckInResponse;
 import com.backend.fourth.attendance.dto.AttendanceSummaryResponse;
 import com.backend.fourth.attendance.dto.CheckInRequest;
+import com.backend.fourth.attendance.dto.QrCheckInRequest;
+import com.backend.fourth.attendance.dto.QrLookupRequest;
 import com.backend.fourth.attendance.dto.ScriptsCollectedRequest;
 import com.backend.fourth.attendance.dto.StudentLookupResponse;
 import com.backend.fourth.attendance.service.AttendanceService;
@@ -34,11 +36,29 @@ public class AttendanceController {
                 attendanceService.lookupStudent(computerNumber, examSessionId, invigilator));
     }
 
+    @PostMapping("/lookup-by-qr")
+    @PreAuthorize("hasAuthority('INVIGILATOR')")
+    public ApiResponse<StudentLookupResponse> lookupByQr(@Valid @RequestBody QrLookupRequest request) {
+        Staff invigilator = currentStaffResolver.requireCurrentStaff();
+        return ApiResponse.success(
+                "Student retrieved from QR",
+                attendanceService.lookupStudentByQr(request, invigilator));
+    }
+
     @PostMapping("/check-in")
     @PreAuthorize("hasAuthority('INVIGILATOR')")
     public ApiResponse<AttendanceCheckInResponse> checkIn(@Valid @RequestBody CheckInRequest request) {
         Staff invigilator = currentStaffResolver.requireCurrentStaff();
         return ApiResponse.success("Attendance recorded", attendanceService.checkIn(request, invigilator));
+    }
+
+    @PostMapping("/check-in-by-qr")
+    @PreAuthorize("hasAuthority('INVIGILATOR')")
+    public ApiResponse<AttendanceCheckInResponse> checkInByQr(@Valid @RequestBody QrCheckInRequest request) {
+        Staff invigilator = currentStaffResolver.requireCurrentStaff();
+        return ApiResponse.success(
+                "Attendance recorded from QR",
+                attendanceService.checkInByQr(request, invigilator));
     }
 
     @GetMapping("/exam/{examSessionId}")

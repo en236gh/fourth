@@ -27,10 +27,11 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Base64;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
-public class ExamSlipPdfService {
+public class ExamPassPdfService {
 
     public String toQrImageBase64(String qrPayload) {
         try {
@@ -43,7 +44,7 @@ public class ExamSlipPdfService {
         }
     }
 
-    public byte[] buildPdf(ExaminationSlipDocumentData data) {
+    public byte[] buildPdf(ExaminationPassDocumentData data) {
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             Document document = new Document();
@@ -53,16 +54,23 @@ public class ExamSlipPdfService {
             Font titleFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16);
             Font headingFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12);
             Font bodyFont = FontFactory.getFont(FontFactory.HELVETICA, 11);
+            Font smallFont = FontFactory.getFont(FontFactory.HELVETICA, 9);
             Font mutedFont = FontFactory.getFont(FontFactory.HELVETICA, 9, BaseColor.DARK_GRAY);
 
             Paragraph title = new Paragraph("Digital Examination Attendance System", titleFont);
             title.setAlignment(Element.ALIGN_CENTER);
             document.add(title);
 
-            Paragraph subtitle = new Paragraph("Examination Slip", headingFont);
+            Paragraph subtitle = new Paragraph("Examination Pass", headingFont);
             subtitle.setAlignment(Element.ALIGN_CENTER);
-            subtitle.setSpacingAfter(14f);
+            subtitle.setSpacingAfter(4f);
             document.add(subtitle);
+
+            Paragraph period = new Paragraph(
+                    data.academicYear() + " · Semester " + data.semester(), mutedFont);
+            period.setAlignment(Element.ALIGN_CENTER);
+            period.setSpacingAfter(14f);
+            document.add(period);
 
             document.add(sectionHeading("Student Details", headingFont));
             document.add(infoTable(new String[][]{
@@ -73,23 +81,8 @@ public class ExamSlipPdfService {
                     {"Year of Study", String.valueOf(data.currentYear())}
             }, bodyFont));
 
-            document.add(sectionHeading("Examination Details", headingFont));
-            document.add(infoTable(new String[][]{
-                    {"Course Code", data.courseCode()},
-                    {"Exam Type", data.examType()},
-                    {"Academic Year", data.academicYear()},
-                    {"Semester", String.valueOf(data.semester())},
-                    {"Date", data.examDate()},
-                    {"Time", data.startTime() + " – " + data.endTime()},
-                    {"Status", data.examStatus()}
-            }, bodyFont));
-
-            document.add(sectionHeading("Venue Allocation", headingFont));
-            document.add(infoTable(new String[][]{
-                    {"Venue", data.venueName()},
-                    {"Building", data.building()},
-                    {"Seat Number", data.seatNumber()}
-            }, bodyFont));
+            document.add(sectionHeading("Examinations", headingFont));
+            document.add(examinationsTable(data.examinations(), smallFont));
 
             BufferedImage qrImage = encodeQrImage(data.qrToken(), 220);
             ByteArrayOutputStream qrBytes = new ByteArrayOutputStream();
@@ -97,15 +90,19 @@ public class ExamSlipPdfService {
             Image qr = Image.getInstance(qrBytes.toByteArray());
             qr.setAlignment(Element.ALIGN_CENTER);
             qr.scaleAbsolute(160f, 160f);
-            qr.setSpacingBefore(12f);
+            qr.setSpacingBefore(14f);
             document.add(qr);
 
-            Paragraph qrCaption = new Paragraph("Secure examination QR code — present this at the venue", mutedFont);
+            Paragraph qrCaption = new Paragraph(
+                    "One secure QR code for all examinations below — present this at each venue",
+                    mutedFont);
             qrCaption.setAlignment(Element.ALIGN_CENTER);
             qrCaption.setSpacingBefore(4f);
             document.add(qrCaption);
 
-            Paragraph generated = new Paragraph("Generated: " + data.generatedAt(), mutedFont);
+            Paragraph generated = new Paragraph(
+                    "Generated: " + data.generatedAt() + "  ·  Valid until: " + data.expiresAt(),
+                    mutedFont);
             generated.setAlignment(Element.ALIGN_CENTER);
             generated.setSpacingBefore(10f);
             document.add(generated);
@@ -113,7 +110,7 @@ public class ExamSlipPdfService {
             document.close();
             return baos.toByteArray();
         } catch (DocumentException | WriterException | IOException ex) {
-            throw new IllegalStateException("Failed to generate examination slip PDF", ex);
+            throw new IllegalStateException("Failed to generate examination pass PDF", ex);
         }
     }
 
@@ -141,6 +138,36 @@ public class ExamSlipPdfService {
         return table;
     }
 
+    private PdfPTable examinationsTable(List<ExaminationRow> examinations, Font font) throws DocumentException {
+        PdfPTable table = new PdfPTable(6);
+        table.setWidthPercentage(100);
+        table.setWidths(new float[]{1.2f, 1.4f, 1.2f, 1.6f, 1.4f, 0.8f});
+
+        String[] headers = {"Course", "Date", "Time", "Venue", "Building", "Seat"};
+        for (String header : headers) {
+            PdfPCell cell = new PdfPCell(new Phrase(header, font));
+            cell.setBackgroundColor(BaseColor.LIGHT_GRAY);
+            cell.setPadding(4f);
+            table.addCell(cell);
+        }
+
+        for (ExaminationRow exam : examinations) {
+            table.addCell(cell(exam.courseCode(), font));
+            table.addCell(cell(exam.examDate(), font));
+            table.addCell(cell(exam.startTime() + "–" + exam.endTime(), font));
+            table.addCell(cell(exam.venueName(), font));
+            table.addCell(cell(exam.building(), font));
+            table.addCell(cell(exam.seatNumber(), font));
+        }
+        return table;
+    }
+
+    private PdfPCell cell(String text, Font font) {
+        PdfPCell cell = new PdfPCell(new Phrase(text == null ? "—" : text, font));
+        cell.setPadding(4f);
+        return cell;
+    }
+
     private BufferedImage encodeQrImage(String payload, int size) throws WriterException {
         Map<EncodeHintType, Object> hints = new EnumMap<>(EncodeHintType.class);
         hints.put(EncodeHintType.ERROR_CORRECTION, ErrorCorrectionLevel.M);
@@ -149,25 +176,29 @@ public class ExamSlipPdfService {
         return MatrixToImageWriter.toBufferedImage(matrix);
     }
 
-    public record ExaminationSlipDocumentData(
+    public record ExaminationRow(
+            String courseCode,
+            String examDate,
+            String startTime,
+            String endTime,
+            String venueName,
+            String building,
+            String seatNumber
+    ) {
+    }
+
+    public record ExaminationPassDocumentData(
             String computerNumber,
             String fullName,
             String school,
             String programme,
             Integer currentYear,
-            String courseCode,
-            String examType,
             String academicYear,
             Integer semester,
-            String examDate,
-            String startTime,
-            String endTime,
-            String examStatus,
-            String venueName,
-            String building,
-            String seatNumber,
+            List<ExaminationRow> examinations,
             String qrToken,
-            String generatedAt
+            String generatedAt,
+            String expiresAt
     ) {
     }
 }

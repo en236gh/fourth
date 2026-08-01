@@ -1,0 +1,223 @@
+{
+  "info": {
+    "_postman_id": "c3d4e5f6-student-exam-pass-phase2",
+    "name": "Student Examination Pass API",
+    "description": "Phase 2 – Examination pass for authenticated students.\n\n**What this covers**\n1. List my examinations (registered courses with venue allocation status)\n2. Generate one examination pass with a single secure QR code covering all allocated exams in the period\n3. Retrieve an existing pass (includes QR token + base64 QR image + exam list)\n4. Download the pass as a PDF (one printout for all exams)\n\n**Prerequisites**\n1. Import `Student.Authentication.postman_collection.json` (or use this collection’s Login)\n2. Activate + login as a student who is registered and allocated\n\n**Good demo account**\n- Computer number: `2022004265`\n- National ID: `1234567891`\n- Password: `Password1` (after activation)\n- Expected CS101 exam on `2026-08-10` at Main LT 1\n\n**Recommended order**\n1. Login\n2. List Examinations\n3. Generate Examination Pass\n4. Get Examination Pass\n5. Download Examination Pass PDF",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "computerNumber",
+      "value": "2022004265"
+    },
+    {
+      "key": "password",
+      "value": "Password1"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "academicYear",
+      "value": "2025/2026"
+    },
+    {
+      "key": "semester",
+      "value": "1"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "0. Auth",
+      "item": [
+        {
+          "name": "Login as Student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login succeeded', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "  pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "  if (pm.environment.get('accessToken') !== undefined) {",
+                  "    pm.environment.set('accessToken', body.data.accessToken);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"computerNumber\": \"{{computerNumber}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/student/auth/login",
+            "description": "Logs in an activated student and saves `accessToken` for the pass endpoints.\n\nAll Phase 2 endpoints require `Authorization: Bearer {{accessToken}}` and role `STUDENT`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Examinations & Pass",
+      "item": [
+        {
+          "name": "List My Examinations",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Examinations returned', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "  pm.expect(body.data).to.be.an('array');",
+                  "  if (body.data.length > 0) {",
+                  "    const preferred = body.data.find(e => e.allocated) || body.data[0];",
+                  "    pm.collectionVariables.set('academicYear', preferred.academicYear);",
+                  "    pm.collectionVariables.set('semester', String(preferred.semester));",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/student/examinations",
+            "description": "Lists examinations the authenticated student is registered for.\n\n**What it does**\n- Finds course registrations for the student\n- Matches them to exam sessions (course + academic year + semester)\n- Includes venue allocation (if any) and whether an examination pass exists for that period\n\n**Response fields (each item)**\n- examSessionId, courseCode, examDate, startTime, endTime\n- academicYear, semester, examType, examStatus\n- allocated, venueName, building, seatNumber\n- passGenerated, passId\n\nAuto-saves `academicYear` / `semester` from the first allocated exam."
+          }
+        },
+        {
+          "name": "Generate Examination Pass",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Pass generated', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "  pm.expect(body.data.qrToken).to.be.a('string');",
+                  "  pm.expect(body.data.qrImageBase64).to.be.a('string');",
+                  "  pm.expect(body.data.examinations).to.be.an('array');",
+                  "  pm.expect(body.data.examinations.length).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/student/examination-pass?academicYear={{academicYear}}&semester={{semester}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "student", "examination-pass"],
+              "query": [
+                { "key": "academicYear", "value": "{{academicYear}}" },
+                { "key": "semester", "value": "{{semester}}" }
+              ]
+            },
+            "description": "Generates (or regenerates) one examination pass for the academic year / semester.\n\n**What it does**\n- Collects all allocated exams for the student in that period\n- Creates one signed QR JWT containing computer number + academicYear + semester (NOT per-exam)\n- Returns pass details, QR image, and the full examination list\n\n**Requirements**\n- Student must be activated\n- At least one exam must already have a venue/seat allocation\n\n`academicYear` and `semester` are optional when the student only has one period.\nCalling again replaces the previous QR (old printouts become invalid)."
+          }
+        },
+        {
+          "name": "Get Examination Pass",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Pass retrieved', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "  pm.expect(body.data).to.include.keys(",
+                  "    'passId', 'academicYear', 'semester', 'computerNumber', 'fullName',",
+                  "    'qrToken', 'qrImageBase64', 'examinations'",
+                  "  );",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/student/examination-pass?academicYear={{academicYear}}&semester={{semester}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "student", "examination-pass"],
+              "query": [
+                { "key": "academicYear", "value": "{{academicYear}}" },
+                { "key": "semester", "value": "{{semester}}" }
+              ]
+            },
+            "description": "Retrieves an already-generated examination pass.\n\n**What it returns**\nStudent identity, one signed `qrToken`, `qrImageBase64`, expiry, and all allocated examinations for the period.\n\nFails with 400 if the pass has not been generated yet."
+          }
+        },
+        {
+          "name": "Download Examination Pass PDF",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('PDF downloaded', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.headers.get('Content-Type')).to.include('application/pdf');",
+                  "  pm.expect(pm.response.stream).to.not.eql(undefined);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/student/examination-pass/pdf?academicYear={{academicYear}}&semester={{semester}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "student", "examination-pass", "pdf"],
+              "query": [
+                { "key": "academicYear", "value": "{{academicYear}}" },
+                { "key": "semester", "value": "{{semester}}" }
+              ]
+            },
+            "description": "Downloads the examination pass as a PDF file.\n\n**What it does**\n- Builds a PDF with student details, a table of all allocated exams (venue/seat), and one embedded QR code\n- Returns raw `application/pdf` bytes (not the usual JSON envelope)\n- Sets `Content-Disposition: attachment; filename=\"exam-pass-<computerNumber>.pdf\"`\n\nIn Postman: Send, then use **Save Response → Save to a file**."
+          }
+        }
+      ]
+    }
+  ]
+}

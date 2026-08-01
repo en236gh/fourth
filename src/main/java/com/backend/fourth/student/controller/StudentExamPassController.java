@@ -2,19 +2,19 @@ package com.backend.fourth.student.controller;
 
 import com.backend.fourth.common.ApiResponse;
 import com.backend.fourth.common.security.CurrentStudentResolver;
-import com.backend.fourth.student.dto.ExaminationSlipResponse;
+import com.backend.fourth.student.dto.ExaminationPassResponse;
 import com.backend.fourth.student.dto.StudentExaminationSummaryResponse;
 import com.backend.fourth.student.entity.Student;
-import com.backend.fourth.student.service.StudentExamSlipService;
+import com.backend.fourth.student.service.StudentExamPassService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -23,8 +23,8 @@ import java.util.List;
 @RequestMapping("/api/student")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('STUDENT')")
-public class StudentExamSlipController {
-    private final StudentExamSlipService studentExamSlipService;
+public class StudentExamPassController {
+    private final StudentExamPassService studentExamPassService;
     private final CurrentStudentResolver currentStudentResolver;
 
     @GetMapping("/examinations")
@@ -32,30 +32,36 @@ public class StudentExamSlipController {
         Student student = currentStudentResolver.requireCurrentStudent();
         return ApiResponse.success(
                 "Examinations retrieved",
-                studentExamSlipService.listMyExaminations(student));
+                studentExamPassService.listMyExaminations(student));
     }
 
-    @PostMapping("/examinations/{examSessionId}/slip")
-    public ApiResponse<ExaminationSlipResponse> generateSlip(@PathVariable Integer examSessionId) {
+    @PostMapping("/examination-pass")
+    public ApiResponse<ExaminationPassResponse> generatePass(
+            @RequestParam(required = false) String academicYear,
+            @RequestParam(required = false) Integer semester) {
         Student student = currentStudentResolver.requireCurrentStudent();
         return ApiResponse.success(
-                "Examination slip generated",
-                studentExamSlipService.generateSlip(student, examSessionId));
+                "Examination pass generated",
+                studentExamPassService.generatePass(student, academicYear, semester));
     }
 
-    @GetMapping("/examinations/{examSessionId}/slip")
-    public ApiResponse<ExaminationSlipResponse> getSlip(@PathVariable Integer examSessionId) {
+    @GetMapping("/examination-pass")
+    public ApiResponse<ExaminationPassResponse> getPass(
+            @RequestParam(required = false) String academicYear,
+            @RequestParam(required = false) Integer semester) {
         Student student = currentStudentResolver.requireCurrentStudent();
         return ApiResponse.success(
-                "Examination slip retrieved",
-                studentExamSlipService.getSlip(student, examSessionId));
+                "Examination pass retrieved",
+                studentExamPassService.getPass(student, academicYear, semester));
     }
 
-    @GetMapping("/examinations/{examSessionId}/slip/pdf")
-    public ResponseEntity<byte[]> downloadSlipPdf(@PathVariable Integer examSessionId) {
+    @GetMapping("/examination-pass/pdf")
+    public ResponseEntity<byte[]> downloadPassPdf(
+            @RequestParam(required = false) String academicYear,
+            @RequestParam(required = false) Integer semester) {
         Student student = currentStudentResolver.requireCurrentStudent();
-        byte[] pdf = studentExamSlipService.downloadSlipPdf(student, examSessionId);
-        String filename = "exam-slip-" + student.getComputerNumber() + "-" + examSessionId + ".pdf";
+        byte[] pdf = studentExamPassService.downloadPassPdf(student, academicYear, semester);
+        String filename = "exam-pass-" + student.getComputerNumber() + ".pdf";
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
                 .contentType(MediaType.APPLICATION_PDF)

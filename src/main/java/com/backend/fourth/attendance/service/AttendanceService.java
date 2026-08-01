@@ -5,6 +5,8 @@ import com.backend.fourth.allocation.repository.StudentVenueAllocationRepository
 import com.backend.fourth.attendance.dto.AttendanceCheckInResponse;
 import com.backend.fourth.attendance.dto.AttendanceSummaryResponse;
 import com.backend.fourth.attendance.dto.CheckInRequest;
+import com.backend.fourth.attendance.dto.QrCheckInRequest;
+import com.backend.fourth.attendance.dto.QrLookupRequest;
 import com.backend.fourth.attendance.dto.StudentLookupResponse;
 import com.backend.fourth.attendance.entity.Attendance;
 import com.backend.fourth.attendance.entity.AttendanceStatus;
@@ -16,16 +18,21 @@ import com.backend.fourth.invigilator.entity.InvigilatorAssignment;
 import com.backend.fourth.invigilator.repository.InvigilatorAssignmentRepository;
 import com.backend.fourth.staff.entity.Staff;
 import com.backend.fourth.staff.repository.StaffRepository;
+import com.backend.fourth.student.entity.ExaminationPass;
 import com.backend.fourth.student.entity.Student;
+import com.backend.fourth.student.repository.ExaminationPassRepository;
 import com.backend.fourth.student.repository.StudentRepository;
+import com.backend.fourth.student.service.ExamPassQrService;
 import com.backend.fourth.venue.entity.Venue;
 import com.backend.fourth.venue.repository.VenueRepository;
+import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -39,6 +46,8 @@ public class AttendanceService {
     private final StudentVenueAllocationRepository allocationRepository;
     private final InvigilatorAssignmentRepository assignmentRepository;
     private final StaffRepository staffRepository;
+    private final ExaminationPassRepository examinationPassRepository;
+    private final ExamPassQrService examPassQrService;
 
     @Transactional(readOnly = true)
     public StudentLookupResponse lookupStudent(String computerNumber, Integer examSessionId, Staff invigilator) {
@@ -73,6 +82,12 @@ public class AttendanceService {
                 alreadyCheckedIn);
     }
 
+    @Transactional(readOnly = true)
+    public StudentLookupResponse lookupStudentByQr(QrLookupRequest request, Staff invigilator) {
+        String computerNumber = resolveComputerNumberFromQr(request.qrToken(), request.examSessionId());
+        return lookupStudent(computerNumber, request.examSessionId(), invigilator);
+    }
+
     @Transactional
     public AttendanceCheckInResponse checkIn(CheckInRequest request, Staff invigilator) {
         if (!assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffId(
@@ -86,9 +101,6 @@ public class AttendanceService {
                 .orElseThrow(() -> new IllegalArgumentException("Exam session not found"));
         if ("COMPLETED".equals(examSession.getStatus())) {
             throw new IllegalStateException("Examination has already been completed");
-        }
-        if (!"IN_PROGRESS".equals(examSession.getStatus())) {
-            throw new IllegalStateException("Examination session has not been started");
         }
         Venue venue = venueRepository.findById(request.venueId())
                 .orElseThrow(() -> new IllegalArgumentException("Venue not found"));
@@ -120,6 +132,67 @@ public class AttendanceService {
         attendance.setScriptsSubmitted(false);
         attendance.setAlertMessage(alert);
         return AttendanceCheckInResponse.from(attendanceRepository.save(attendance));
+    }
+
+    @Transactional
+    public AttendanceCheckInResponse checkInByQr(QrCheckInRequest request, Staff invigilator) {
+        String computerNumber = resolveComputerNumberFromQr(request.qrToken(), request.examSessionId());
+        return checkIn(
+                new CheckInRequest(
+                        computerNumber,
+                        request.examSessionId(),
+                        request.venueId(),
+                        "QR_CODE"),
+                invigilator);
+    }
+
+    /**
+     * Validates a scanned examination-pass QR JWT against the currently stored pass,
+     * then confirms the pass period covers the requested exam session.
+     */
+    private String resolveComputerNumberFromQr(String qrToken, Integer examSessionId) {
+        Claims claims = examPassQrService.parseAndValidate(qrToken);
+        String computerNumber = claims.getSubject();
+        if (computerNumber == null || computerNumber.isBlank()) {
+            throw new IllegalArgumentException("QR token is missing student identity");
+        }
+
+        String jti = claims.getId();
+        if (jti == null || jti.isBlank()) {
+            throw new IllegalArgumentException("QR token is missing pass identifier");
+        }
+
+        String academicYear = String.valueOf(claims.get("academicYear"));
+        Integer semester = claims.get("semester", Integer.class);
+        if (academicYear == null || "null".equals(academicYear) || academicYear.isBlank() || semester == null) {
+            throw new IllegalArgumentException("QR token is missing examination period");
+        }
+
+        ExaminationPass pass = examinationPassRepository.findByQrJti(jti)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Examination pass QR is no longer valid. Ask the student to regenerate their pass."));
+
+        if (!Objects.equals(pass.getQrToken(), qrToken.trim())) {
+            throw new IllegalArgumentException(
+                    "Examination pass QR is no longer valid. Ask the student to regenerate their pass.");
+        }
+        if (!Objects.equals(pass.getStudent().getComputerNumber(), computerNumber)) {
+            throw new IllegalArgumentException("QR token does not match the stored examination pass");
+        }
+        if (!Objects.equals(pass.getAcademicYear(), academicYear)
+                || !Objects.equals(pass.getSemester(), semester)) {
+            throw new IllegalArgumentException("QR token does not match the stored examination pass");
+        }
+
+        ExamSession examSession = examSessionRepository.findById(examSessionId)
+                .orElseThrow(() -> new IllegalArgumentException("Exam session not found"));
+        if (!Objects.equals(examSession.getAcademicYear(), academicYear)
+                || !Objects.equals(examSession.getSemester(), semester)) {
+            throw new IllegalArgumentException(
+                    "This examination pass is not valid for the selected examination period");
+        }
+
+        return computerNumber;
     }
 
     @Transactional(readOnly = true)

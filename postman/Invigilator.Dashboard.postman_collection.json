@@ -266,7 +266,7 @@
               "raw": "{\n  \"computerNumber\": \"{{computerNumber}}\",\n  \"examSessionId\": {{examSessionId}},\n  \"venueId\": {{venueId}},\n  \"verificationMethod\": \"COMPUTER\"\n}"
             },
             "url": "{{baseUrl}}/api/attendance/check-in",
-            "description": "Records attendance for the logged-in invigilator.\n\n**Important:** `venueId` must be the student's allocated venue for a clean PRESENT check-in.\nDemo students `2022004264` / `2022004265` / `2022004266` are at Main LT 1 → `venueId = 16`.\nIf you check in at a different assigned venue (e.g. 19), status becomes `WRONG_VENUE`.\n\n- 200 on first check-in\n- 409 if already checked in for that exam\n- 400 if not assigned / student not allocated\n\nMVP verificationMethod: `COMPUTER`.\nFuture: `QR_CODE`, `FACIAL_RECOGNITION`.\n\nAfter DB reset (V14), demo exam attendance is cleared so you can check these students in again."
+            "description": "Records attendance for the logged-in invigilator.\n\n**Important:** `venueId` must be the student's allocated venue for a clean PRESENT check-in.\nDemo students `2022004264` / `2022004265` / `2022004266` are at Main LT 1 → `venueId = 16`.\nIf you check in at a different assigned venue (e.g. 19), status becomes `WRONG_VENUE`.\n\n- 200 on first check-in\n- 409 if already checked in for that exam\n- 400 if not assigned / student not allocated\n\nUse `COMPUTER` for typed computer-number check-in.\nFor real QR validation (signed exam-pass JWT), use the **Invigilator Scanner (Flutter) API** collection: `POST /api/attendance/lookup-by-qr` and `POST /api/attendance/check-in-by-qr`.\n\nAfter DB reset (V14), demo exam attendance is cleared so you can check these students in again."
           }
         },
         {
