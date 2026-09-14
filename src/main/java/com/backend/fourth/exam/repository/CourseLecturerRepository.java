@@ -8,4 +8,6 @@ import java.util.List;
 
 public interface CourseLecturerRepository extends JpaRepository<CourseLecturer, CourseLecturerId> {
     List<CourseLecturer> findByCourseCodeOrderByStaffIdAsc(String courseCode);
+
+    boolean existsByCourseCodeAndStaffId(String courseCode, Integer staffId);
 }

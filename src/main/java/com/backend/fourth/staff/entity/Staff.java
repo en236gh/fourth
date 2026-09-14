@@ -19,9 +19,6 @@ public class Staff {
     @Column(name = "staff_id")
     private Integer staffId;
 
-    @Column(name = "staff_no", nullable = false, unique = true)
-    private String staffNo;
-
     @Column(name = "full_name", nullable = false)
     private String fullName;
 
@@ -34,8 +31,11 @@ public class Staff {
     @Column(name = "department")
     private String department;
 
+    @Column(name = "account_status", nullable = false)
+    private String accountStatus = "PENDING";
+
     @JsonIgnore
-    @Column(name = "password_hash", nullable = false)
+    @Column(name = "password_hash")
     private String passwordHash;
 
     @ManyToMany(fetch = FetchType.EAGER)

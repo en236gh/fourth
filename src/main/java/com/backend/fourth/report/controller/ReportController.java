@@ -12,6 +12,9 @@ import com.backend.fourth.staff.entity.Staff;
 import com.backend.fourth.venue.entity.Venue;
 import com.backend.fourth.venue.repository.VenueRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -45,6 +48,24 @@ public class ReportController {
                 .orElseThrow(() -> new IllegalArgumentException("Venue not found"));
 
         return ApiResponse.success("Report generated", reportService.generateExamReport(examSession, staff, venue));
+    }
+
+    @GetMapping("/exam-session/{examSessionId}/pdf")
+    @PreAuthorize("hasAuthority('LECTURER')")
+    public ResponseEntity<byte[]> downloadLecturerReport(@PathVariable Integer examSessionId) {
+        Staff lecturer = currentStaffResolver.requireCurrentStaff();
+        ExamSession examSession = examSessionRepository.findById(examSessionId)
+                .orElseThrow(() -> new IllegalArgumentException("Exam session not found"));
+        byte[] pdf = reportService.generateLecturerReport(examSession, lecturer);
+        String safeCourseCode = examSession.getCourseCode().replaceAll("[^A-Za-z0-9._-]", "-");
+        String filename = "attendance-incidents-" + safeCourseCode + "-"
+                + examSession.getExamDate() + ".pdf";
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(MediaType.APPLICATION_PDF)
+                .contentLength(pdf.length)
+                .body(pdf);
     }
 
     @GetMapping

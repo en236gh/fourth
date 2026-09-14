@@ -104,7 +104,6 @@ public class InvigilatorService {
             staffRepository.findById(link.getStaffId()).ifPresent(lecturer ->
                     lecturers.add(new LecturerInfoResponse(
                             lecturer.getStaffId(),
-                            lecturer.getStaffNo(),
                             lecturer.getFullName(),
                             lecturer.getEmail(),
                             lecturer.getDepartment())));

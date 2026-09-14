@@ -33,7 +33,8 @@ public class AuthController {
     public ApiResponse<TokenResponse> login(@Valid @RequestBody LoginRequest request) {
         Staff staff = staffRepository.findByEmail(request.email())
                 .orElseThrow(() -> new IllegalArgumentException("Invalid credentials"));
-        if (!passwordEncoder.matches(request.password(), staff.getPasswordHash())) {
+        if (staff.getPasswordHash() == null
+                || !passwordEncoder.matches(request.password(), staff.getPasswordHash())) {
             throw new IllegalArgumentException("Invalid credentials");
         }
 

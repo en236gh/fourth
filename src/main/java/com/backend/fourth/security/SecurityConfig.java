@@ -87,7 +87,10 @@ public class SecurityConfig {
             com.backend.fourth.staff.entity.Staff staff = staffRepository.findByEmail(username)
                     .orElseThrow(() -> new org.springframework.security.core.userdetails.UsernameNotFoundException("User not found"));
             return User.withUsername(staff.getEmail())
-                    .password(staff.getPasswordHash())
+                    .password(staff.getPasswordHash() != null
+                            ? staff.getPasswordHash()
+                            : "{noop}no-password")
+                    .disabled(staff.getPasswordHash() == null)
                     .authorities(staff.getRoles().stream()
                             .map(role -> role.getName())
                             .collect(Collectors.toList())
