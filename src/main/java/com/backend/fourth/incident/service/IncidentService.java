@@ -32,8 +32,8 @@ public class IncidentService {
 
     @Transactional
     public IncidentResponse report(CreateIncidentRequest request, Staff invigilator) {
-        if (!assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffId(
-                request.examSessionId(), request.venueId(), invigilator.getStaffId())) {
+        if (!assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffIdAndAssignmentStatus(
+                request.examSessionId(), request.venueId(), invigilator.getStaffId(), "PUBLISHED")) {
             throw new IllegalArgumentException("You are not assigned to this examination venue");
         }
 

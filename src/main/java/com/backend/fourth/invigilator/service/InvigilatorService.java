@@ -33,7 +33,7 @@ public class InvigilatorService {
     @Transactional(readOnly = true)
     public List<InvigilatorAssignmentResponse> myAssignments(Staff staff) {
         List<InvigilatorAssignmentResponse> responses = new ArrayList<>();
-        for (InvigilatorAssignment assignment : assignmentRepository.findByStaffId(staff.getStaffId())) {
+        for (InvigilatorAssignment assignment : assignmentRepository.findByStaffIdAndAssignmentStatus(staff.getStaffId(), "PUBLISHED")) {
             ExamSession exam = examSessionRepository.findById(assignment.getExamSessionId())
                     .orElseThrow(() -> new IllegalArgumentException("Exam session not found"));
             Venue venue = venueRepository.findById(assignment.getVenueId())
@@ -45,7 +45,7 @@ public class InvigilatorService {
 
     @Transactional
     public InvigilatorAssignmentResponse startSession(Staff staff, Integer examSessionId, Integer venueId) {
-        if (!assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffId(examSessionId, venueId, staff.getStaffId())) {
+        if (!assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffIdAndAssignmentStatus(examSessionId, venueId, staff.getStaffId(), "PUBLISHED")) {
             throw new IllegalArgumentException("You are not assigned to this examination venue");
         }
         ExamSession exam = examSessionRepository.findById(examSessionId)
@@ -64,7 +64,7 @@ public class InvigilatorService {
 
     @Transactional
     public InvigilatorAssignmentResponse endSession(Staff staff, Integer examSessionId, Integer venueId) {
-        if (!assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffId(examSessionId, venueId, staff.getStaffId())) {
+        if (!assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffIdAndAssignmentStatus(examSessionId, venueId, staff.getStaffId(), "PUBLISHED")) {
             throw new IllegalArgumentException("You are not assigned to this examination venue");
         }
         ExamSession exam = examSessionRepository.findById(examSessionId)

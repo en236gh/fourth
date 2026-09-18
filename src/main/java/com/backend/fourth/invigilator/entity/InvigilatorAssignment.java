@@ -7,6 +7,7 @@ import jakarta.persistence.IdClass;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "invigilator_assignment")
@@ -25,4 +26,19 @@ public class InvigilatorAssignment {
     @Id
     @Column(name = "staff_id", nullable = false)
     private Integer staffId;
+
+    @Column(name = "assignment_status", nullable = false)
+    private String assignmentStatus = "DRAFT";
+
+    @Column(name = "assigned_by_staff_id")
+    private Integer assignedByStaffId;
+
+    @Column(name = "assigned_at", nullable = false)
+    private LocalDateTime assignedAt;
+
+    @Column(name = "published_at")
+    private LocalDateTime publishedAt;
+
+    @Column(name = "assignment_notes")
+    private String assignmentNotes;
 }
