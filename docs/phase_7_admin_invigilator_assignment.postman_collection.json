@@ -126,7 +126,7 @@
           "request": {
             "method": "POST",
             "url": { "raw": "{{baseUrl}}/api/admin/invigilator-assignments/{{examSessionId}}/{{venueId}}/{{staffId}}/cancel", "host": [ "{{baseUrl}}" ], "path": [ "api", "admin", "invigilator-assignments", "{{examSessionId}}", "{{venueId}}", "{{staffId}}", "cancel" ] },
-            "description": "Marks an existing draft or published assignment as CANCELLED. Cancelled assignments no longer count toward staffing or workload."
+            "description": "Deletes a DRAFT assignment row. A published assignment is marked CANCELLED and no longer counts toward staffing or workload."
           }
         },
         {

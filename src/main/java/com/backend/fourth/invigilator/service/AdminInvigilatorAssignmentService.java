@@ -161,6 +161,10 @@ public class AdminInvigilatorAssignmentService {
         if ("CANCELLED".equals(assignment.getAssignmentStatus())) {
             throw new IllegalStateException("Invigilator assignment is already cancelled");
         }
+        if ("DRAFT".equals(assignment.getAssignmentStatus())) {
+            assignmentRepository.deleteById(new InvigilatorAssignmentId(examSessionId, venueId, staffId));
+            return toResponse(assignment, staffRepository.findById(staffId).orElseThrow());
+        }
         assignment.setAssignmentStatus("CANCELLED");
         assignment.setPublishedAt(null);
         return toResponse(assignmentRepository.save(assignment), staffRepository.findById(staffId).orElseThrow());

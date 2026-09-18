@@ -19,7 +19,7 @@ This is the only actor with new Phase 7 APIs. The recommended workflow is:
 1. `GET /api/admin/invigilator-assignments/exam-sessions/{examSessionId}/staffing` to show, per venue, the allocated student count, required/assigned invigilator counts, `staffingStatus`, named `assignedInvigilators` with their `assignmentStatus`, and named `remainingInvigilators`. Each venue row also includes `totalActiveInvigilatorCount`, `totalAssignedInvigilatorCount`, and `totalRemainingInvigilatorCount` for the examination overall.
 2. `POST /api/admin/invigilator-assignments/exam-sessions/{examSessionId}/auto-assign` to generate eligible assignments. The response includes `assignments`, `createdDraftAssignments`, and any `understaffedVenueIds`.
 3. `GET /api/admin/invigilator-assignments?examSessionId={examSessionId}` to review all assignments and their statuses.
-4. Optionally use `POST /api/admin/invigilator-assignments` for a manual draft or `POST /api/admin/invigilator-assignments/{examSessionId}/{venueId}/{staffId}/cancel` to remove an assignment from consideration.
+4. Optionally use `POST /api/admin/invigilator-assignments` for a manual draft or `POST /api/admin/invigilator-assignments/{examSessionId}/{venueId}/{staffId}/cancel` to remove an assignment from consideration. Cancelling a `DRAFT` assignment deletes its database row; cancelling a published assignment records it as `CANCELLED`.
 5. `POST /api/admin/invigilator-assignments/exam-sessions/{examSessionId}/publish` after review. Only then are draft assignments published for operational use.
 
 Automatic assignment selects active staff with the `INVIGILATOR` role, excludes time clashes, prefers lower active workload, and never creates published assignments directly.

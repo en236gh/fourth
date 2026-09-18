@@ -26,6 +26,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -77,6 +78,21 @@ class AdminInvigilatorAssignmentServiceTest {
                 .count());
         assertTrue(response.assignments().stream().noneMatch(assignment -> assignment.staffId().equals(3)));
         assertTrue(response.assignments().stream().noneMatch(assignment -> assignment.staffId().equals(4)));
+    }
+
+    @Test
+    void shouldDeleteDraftWhenCancelled() {
+        ExamSession target = exam(10, LocalTime.of(9, 0), LocalTime.of(11, 0));
+        InvigilatorAssignment draft = assignment(10, 1, 2, "DRAFT");
+        Staff invigilator = staff(2, "Invigilator", "ACTIVE", true);
+
+        when(examSessionRepository.findById(10)).thenReturn(Optional.of(target));
+        when(assignmentRepository.findById(any())).thenReturn(Optional.of(draft));
+        when(staffRepository.findById(2)).thenReturn(Optional.of(invigilator));
+
+        service.cancel(10, 1, 2);
+
+        verify(assignmentRepository).deleteById(any());
     }
 
     private ExamSession exam(Integer id, LocalTime start, LocalTime end) {

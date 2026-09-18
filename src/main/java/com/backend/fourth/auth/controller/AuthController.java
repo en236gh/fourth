@@ -11,6 +11,7 @@ import com.backend.fourth.staff.entity.Staff;
 import com.backend.fourth.staff.repository.StaffRepository;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -42,6 +43,7 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
+    @Transactional
     public ApiResponse<TokenResponse> refresh(@Valid @RequestBody RefreshRequest request) {
         RefreshToken stored = refreshTokenRepository.findByToken(request.refreshToken())
                 .orElseThrow(() -> new IllegalArgumentException("Invalid refresh token"));
