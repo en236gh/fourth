@@ -7,6 +7,7 @@ import com.backend.fourth.exam.entity.ExamVenueId;
 import com.backend.fourth.exam.repository.ExamSessionRepository;
 import com.backend.fourth.exam.repository.ExamVenueRepository;
 import com.backend.fourth.invigilator.dto.AdminAssignmentResponse;
+import com.backend.fourth.invigilator.dto.AdminStaffMemberResponse;
 import com.backend.fourth.invigilator.dto.AdminStaffingResponse;
 import com.backend.fourth.invigilator.dto.AutoAssignmentResponse;
 import com.backend.fourth.invigilator.dto.CreateInvigilatorAssignmentRequest;
@@ -49,9 +50,14 @@ public class AdminInvigilatorAssignmentService {
 
     @Transactional(readOnly = true)
     public List<AdminStaffingResponse> staffing(Integer examSessionId) {
-        requireAssignableExam(examSessionId);
+        ExamSession exam = requireAssignableExam(examSessionId);
+        List<Staff> activeInvigilators = staffRepository.findAll().stream()
+            .filter(this::isActiveInvigilator)
+            .toList();
+        List<InvigilatorAssignment> examAssignments = assignmentRepository.findByExamSessionId(examSessionId);
         return examVenueRepository.findByExamSessionIdOrderByVenueIdAsc(examSessionId).stream()
-                .map(venue -> staffingFor(examSessionId, venue.getVenueId()))
+            .map(venue -> staffingFor(examSessionId, venue.getVenueId(), exam,
+                activeInvigilators, examAssignments))
                 .toList();
     }
 
@@ -207,7 +213,9 @@ public class AdminInvigilatorAssignmentService {
         return Math.max(1, (int) Math.ceil(allocated / (double) STUDENTS_PER_INVIGILATOR));
     }
 
-    private AdminStaffingResponse staffingFor(Integer examSessionId, Integer venueId) {
+    private AdminStaffingResponse staffingFor(Integer examSessionId, Integer venueId, ExamSession exam,
+                                              List<Staff> activeInvigilators,
+                                              List<InvigilatorAssignment> examAssignments) {
         List<InvigilatorAssignment> assignments = assignmentRepository
                 .findByExamSessionIdAndVenueId(examSessionId, venueId);
         long allocated = allocationRepository.countByVenueIdAndExamSessionId(venueId, examSessionId);
@@ -215,8 +223,26 @@ public class AdminInvigilatorAssignmentService {
         long active = assignments.stream().filter(a -> !"CANCELLED".equals(a.getAssignmentStatus())).count();
         long drafts = assignments.stream().filter(a -> "DRAFT".equals(a.getAssignmentStatus())).count();
         long published = assignments.stream().filter(a -> "PUBLISHED".equals(a.getAssignmentStatus())).count();
+        List<AdminStaffMemberResponse> assigned = assignments.stream()
+            .filter(a -> !"CANCELLED".equals(a.getAssignmentStatus()))
+            .map(a -> staffRepository.findById(a.getStaffId())
+                .map(staff -> new AdminStaffMemberResponse(
+                    staff.getStaffId(), staff.getFullName(), a.getAssignmentStatus()))
+                .orElse(null))
+            .filter(java.util.Objects::nonNull)
+            .toList();
+        List<Integer> assignedStaffIds = examAssignments.stream()
+            .filter(a -> !"CANCELLED".equals(a.getAssignmentStatus()))
+            .map(a -> a.getStaffId())
+            .toList();
+        List<AdminStaffMemberResponse> remaining = activeInvigilators.stream()
+            .filter(staff -> !assignedStaffIds.contains(staff.getStaffId()))
+            .filter(staff -> !hasConflict(staff.getStaffId(), exam, null))
+            .map(staff -> new AdminStaffMemberResponse(staff.getStaffId(), staff.getFullName(), null))
+            .toList();
         return new AdminStaffingResponse(examSessionId, venueId, allocated, required, active, drafts, published,
-                active >= required ? "STAFFED" : "UNDERSTAFFED");
+            active >= required ? "STAFFED" : "UNDERSTAFFED", assigned, remaining,
+            activeInvigilators.size(), assignedStaffIds.stream().distinct().count(), remaining.size());
     }
 
     private AdminAssignmentResponse toResponse(InvigilatorAssignment assignment, Staff staff) {
