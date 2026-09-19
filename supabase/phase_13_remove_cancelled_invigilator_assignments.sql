@@ -7,7 +7,8 @@ BEGIN;
 
 SELECT exam_session_id, venue_id, staff_id, assignment_status
 FROM public.invigilator_assignment
-WHERE assignment_status = 'CANCELLED';
+WHERE assignment_status = 'CANCELLED'
+ORDER BY exam_session_id, venue_id, staff_id;
 
 DELETE FROM public.invigilator_assignment
 WHERE assignment_status = 'CANCELLED';

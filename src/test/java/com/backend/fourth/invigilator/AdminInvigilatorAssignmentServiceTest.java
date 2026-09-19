@@ -95,6 +95,21 @@ class AdminInvigilatorAssignmentServiceTest {
         verify(assignmentRepository).deleteById(any());
     }
 
+    @Test
+    void shouldDeletePublishedWhenCancelled() {
+        ExamSession target = exam(10, LocalTime.of(9, 0), LocalTime.of(11, 0));
+        InvigilatorAssignment published = assignment(10, 1, 2, "PUBLISHED");
+        Staff invigilator = staff(2, "Invigilator", "ACTIVE", true);
+
+        when(examSessionRepository.findById(10)).thenReturn(Optional.of(target));
+        when(assignmentRepository.findById(any())).thenReturn(Optional.of(published));
+        when(staffRepository.findById(2)).thenReturn(Optional.of(invigilator));
+
+        service.cancel(10, 1, 2);
+
+        verify(assignmentRepository).deleteById(any());
+    }
+
     private ExamSession exam(Integer id, LocalTime start, LocalTime end) {
         ExamSession exam = new ExamSession();
         exam.setExamSessionId(id);

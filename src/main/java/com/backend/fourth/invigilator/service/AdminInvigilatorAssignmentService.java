@@ -158,16 +158,8 @@ public class AdminInvigilatorAssignmentService {
         InvigilatorAssignment assignment = assignmentRepository.findById(
                 new InvigilatorAssignmentId(examSessionId, venueId, staffId))
                 .orElseThrow(() -> new IllegalArgumentException("Invigilator assignment not found"));
-        if ("CANCELLED".equals(assignment.getAssignmentStatus())) {
-            throw new IllegalStateException("Invigilator assignment is already cancelled");
-        }
-        if ("DRAFT".equals(assignment.getAssignmentStatus())) {
-            assignmentRepository.deleteById(new InvigilatorAssignmentId(examSessionId, venueId, staffId));
-            return toResponse(assignment, staffRepository.findById(staffId).orElseThrow());
-        }
-        assignment.setAssignmentStatus("CANCELLED");
-        assignment.setPublishedAt(null);
-        return toResponse(assignmentRepository.save(assignment), staffRepository.findById(staffId).orElseThrow());
+        assignmentRepository.deleteById(new InvigilatorAssignmentId(examSessionId, venueId, staffId));
+        return toResponse(assignment, staffRepository.findById(staffId).orElseThrow());
     }
 
     private ExamSession requireAssignableExam(Integer id) {
