@@ -12,10 +12,64 @@
     { "key": "accessToken", "value": "" },
     { "key": "refreshToken", "value": "" },
     { "key": "examSessionId", "value": "1" },
+    { "key": "schoolId", "value": "1" },
+    { "key": "programmeId", "value": "1" },
+    { "key": "yearOfStudy", "value": "1" },
+    { "key": "courseCode", "value": "CSC1101" },
     { "key": "venueId", "value": "1" },
     { "key": "staffId", "value": "1" }
   ],
   "item": [
+    {
+      "name": "Academic Selection",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{accessToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "List Schools",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/admin/invigilator-assignments/academics/schools"
+          }
+        },
+        {
+          "name": "List Programmes",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/admin/invigilator-assignments/academics/programmes?schoolId={{schoolId}}"
+          }
+        },
+        {
+          "name": "List Years of Study",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/admin/invigilator-assignments/academics/years?schoolId={{schoolId}}&programmeId={{programmeId}}"
+          }
+        },
+        {
+          "name": "List Curriculum Courses",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/admin/invigilator-assignments/academics/courses?schoolId={{schoolId}}&programmeId={{programmeId}}&yearOfStudy={{yearOfStudy}}"
+          }
+        },
+        {
+          "name": "List Matching Exams",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/admin/invigilator-assignments/academics/exams?schoolId={{schoolId}}&programmeId={{programmeId}}&yearOfStudy={{yearOfStudy}}&courseCode={{courseCode}}"
+          }
+        }
+      ]
+    },
     {
       "name": "Shared Authentication",
       "description": "Use Login first. The test script stores the returned tokens in collection variables for the administrator requests.",
@@ -108,7 +162,7 @@
           "request": {
             "method": "POST",
             "header": [ { "key": "Content-Type", "value": "application/json" } ],
-            "body": { "mode": "raw", "raw": "{\n  \"examSessionId\": {{examSessionId}},\n  \"venueId\": {{venueId}},\n  \"staffId\": {{staffId}},\n  \"notes\": \"Reviewed by administrator\"\n}", "options": { "raw": { "language": "json" } } },
+            "body": { "mode": "raw", "raw": "{\n  \"selection\": {\"schoolId\": {{schoolId}}, \"programmeId\": {{programmeId}}, \"yearOfStudy\": {{yearOfStudy}}, \"courseCode\": \"{{courseCode}}\"},\n  \"examSessionId\": {{examSessionId}},\n  \"venueId\": {{venueId}},\n  \"staffId\": {{staffId}},\n  \"notes\": \"Reviewed by administrator\"\n}", "options": { "raw": { "language": "json" } } },
             "url": { "raw": "{{baseUrl}}/api/admin/invigilator-assignments", "host": [ "{{baseUrl}}" ], "path": [ "api", "admin", "invigilator-assignments" ] },
             "description": "Creates one DRAFT assignment. The staff member must be active, have the INVIGILATOR role, and have no time clash."
           }
@@ -117,6 +171,8 @@
           "name": "Generate Automatic Draft Assignments",
           "request": {
             "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\"schoolId\": {{schoolId}}, \"programmeId\": {{programmeId}}, \"yearOfStudy\": {{yearOfStudy}}, \"courseCode\": \"{{courseCode}}\"}", "options": { "raw": { "language": "json" } } },
             "url": { "raw": "{{baseUrl}}/api/admin/invigilator-assignments/exam-sessions/{{examSessionId}}/auto-assign", "host": [ "{{baseUrl}}" ], "path": [ "api", "admin", "invigilator-assignments", "exam-sessions", "{{examSessionId}}", "auto-assign" ] },
             "description": "Calculates staffing at one invigilator per 50 allocated students, selects eligible staff, avoids clashes, balances workload, and creates DRAFT assignments only."
           }

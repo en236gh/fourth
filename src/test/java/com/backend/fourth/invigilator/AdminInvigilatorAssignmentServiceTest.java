@@ -6,6 +6,9 @@ import com.backend.fourth.exam.entity.ExamVenue;
 import com.backend.fourth.exam.repository.ExamSessionRepository;
 import com.backend.fourth.exam.repository.ExamVenueRepository;
 import com.backend.fourth.invigilator.dto.AutoAssignmentResponse;
+import com.backend.fourth.invigilator.dto.AcademicSelection;
+import com.backend.fourth.invigilator.dto.CreateInvigilatorAssignmentRequest;
+import com.backend.fourth.invigilator.repository.AssignmentAcademicRepository;
 import com.backend.fourth.invigilator.entity.InvigilatorAssignment;
 import com.backend.fourth.invigilator.repository.InvigilatorAssignmentRepository;
 import com.backend.fourth.staff.entity.Role;
@@ -25,9 +28,11 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class AdminInvigilatorAssignmentServiceTest {
@@ -42,6 +47,10 @@ class AdminInvigilatorAssignmentServiceTest {
     private StudentVenueAllocationRepository allocationRepository;
     @Mock
     private StaffRepository staffRepository;
+    @Mock
+    private AssignmentAcademicRepository academicRepository;
+
+    private final AcademicSelection selection = new AcademicSelection(1, 2, 3, "CSC3101");
 
     @InjectMocks
     private AdminInvigilatorAssignmentService service;
@@ -69,7 +78,8 @@ class AdminInvigilatorAssignmentServiceTest {
         when(assignmentRepository.save(any(InvigilatorAssignment.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        AutoAssignmentResponse response = service.autoAssignDrafts(10, first);
+        when(academicRepository.matches(10, selection)).thenReturn(true);
+        AutoAssignmentResponse response = service.autoAssignDrafts(10, selection, first);
 
         assertEquals(2, response.createdDraftAssignments());
         assertEquals(List.of(1), response.understaffedVenueIds());
@@ -108,6 +118,36 @@ class AdminInvigilatorAssignmentServiceTest {
         service.cancel(10, 1, 2);
 
         verify(assignmentRepository).deleteById(any());
+    }
+
+    @Test
+    void rejectsManualAssignmentOutsideSelectedHierarchy() {
+        var request = new CreateInvigilatorAssignmentRequest(
+                selection, 10, 1, 2, null);
+        assertThrows(IllegalArgumentException.class,
+                () -> service.createDraft(request, new Staff()));
+        verifyNoInteractions(assignmentRepository, examVenueRepository, staffRepository);
+    }
+
+    @Test
+    void rejectsAutomaticAssignmentOutsideSelectedHierarchy() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service.autoAssignDrafts(10, selection, new Staff()));
+        verifyNoInteractions(assignmentRepository, examVenueRepository, staffRepository);
+    }
+
+    @Test
+    void createsManualAssignmentForMatchingHierarchy() {
+        when(academicRepository.matches(10, selection)).thenReturn(true);
+        when(examSessionRepository.findById(10)).thenReturn(Optional.of(exam(10, LocalTime.of(9, 0), LocalTime.of(11, 0))));
+        when(examVenueRepository.existsById(any())).thenReturn(true);
+        when(staffRepository.findById(2)).thenReturn(Optional.of(staff(2, "Invigilator", "ACTIVE", true)));
+        when(assignmentRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        var request = new CreateInvigilatorAssignmentRequest(
+                selection, 10, 1, 2, null);
+        var result = service.createDraft(request, staff(1, "Admin", "ACTIVE", false));
+        assertEquals(10, result.examSessionId());
+        assertEquals("DRAFT", result.assignmentStatus());
     }
 
     private ExamSession exam(Integer id, LocalTime start, LocalTime end) {

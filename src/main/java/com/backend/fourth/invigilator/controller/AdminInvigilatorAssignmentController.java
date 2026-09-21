@@ -3,6 +3,7 @@ package com.backend.fourth.invigilator.controller;
 import com.backend.fourth.common.ApiResponse;
 import com.backend.fourth.common.security.CurrentStaffResolver;
 import com.backend.fourth.invigilator.dto.AdminAssignmentResponse;
+import com.backend.fourth.invigilator.dto.AcademicSelection;
 import com.backend.fourth.invigilator.dto.AdminStaffingResponse;
 import com.backend.fourth.invigilator.dto.AutoAssignmentResponse;
 import com.backend.fourth.invigilator.dto.CreateInvigilatorAssignmentRequest;
@@ -40,8 +41,9 @@ public class AdminInvigilatorAssignmentController {
     }
     @PostMapping("/exam-sessions/{examSessionId}/auto-assign")
     @PreAuthorize("hasAuthority('ADMINISTRATOR')")
-    public ApiResponse<AutoAssignmentResponse> autoAssign(@PathVariable Integer examSessionId) {
-        return ApiResponse.success("Draft assignments generated", service.autoAssignDrafts(examSessionId, currentStaffResolver.requireCurrentStaff()));
+    public ApiResponse<AutoAssignmentResponse> autoAssign(@PathVariable Integer examSessionId,
+            @Valid @RequestBody AcademicSelection selection) {
+        return ApiResponse.success("Draft assignments generated", service.autoAssignDrafts(examSessionId, selection, currentStaffResolver.requireCurrentStaff()));
     }
     @PostMapping("/exam-sessions/{examSessionId}/publish")
     @PreAuthorize("hasAuthority('ADMINISTRATOR')")

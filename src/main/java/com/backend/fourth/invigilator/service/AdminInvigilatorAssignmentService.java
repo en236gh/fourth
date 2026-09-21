@@ -7,6 +7,8 @@ import com.backend.fourth.exam.entity.ExamVenueId;
 import com.backend.fourth.exam.repository.ExamSessionRepository;
 import com.backend.fourth.exam.repository.ExamVenueRepository;
 import com.backend.fourth.invigilator.dto.AdminAssignmentResponse;
+import com.backend.fourth.invigilator.dto.AcademicSelection;
+import com.backend.fourth.invigilator.repository.AssignmentAcademicRepository;
 import com.backend.fourth.invigilator.dto.AdminStaffMemberResponse;
 import com.backend.fourth.invigilator.dto.AdminStaffingResponse;
 import com.backend.fourth.invigilator.dto.AutoAssignmentResponse;
@@ -37,6 +39,7 @@ public class AdminInvigilatorAssignmentService {
     private final ExamVenueRepository examVenueRepository;
     private final StudentVenueAllocationRepository allocationRepository;
     private final StaffRepository staffRepository;
+    private final AssignmentAcademicRepository academicRepository;
 
     @Transactional(readOnly = true)
     public List<AdminAssignmentResponse> list(Integer examSessionId) {
@@ -63,6 +66,7 @@ public class AdminInvigilatorAssignmentService {
 
     @Transactional
     public AdminAssignmentResponse createDraft(CreateInvigilatorAssignmentRequest request, Staff administrator) {
+        requireAcademicSelection(request.examSessionId(), request.selection());
         ExamSession exam = requireAssignableExam(request.examSessionId());
         if (!examVenueRepository.existsById(new ExamVenueId(request.examSessionId(), request.venueId()))) {
             throw new IllegalArgumentException("Venue is not linked to this examination");
@@ -87,7 +91,9 @@ public class AdminInvigilatorAssignmentService {
     }
 
     @Transactional
-    public AutoAssignmentResponse autoAssignDrafts(Integer examSessionId, Staff administrator) {
+    public AutoAssignmentResponse autoAssignDrafts(Integer examSessionId,
+            AcademicSelection selection, Staff administrator) {
+        requireAcademicSelection(examSessionId, selection);
         ExamSession exam = requireAssignableExam(examSessionId);
         List<Staff> eligible = staffRepository.findAll().stream()
                 .filter(this::isActiveInvigilator)
@@ -160,6 +166,13 @@ public class AdminInvigilatorAssignmentService {
                 .orElseThrow(() -> new IllegalArgumentException("Invigilator assignment not found"));
         assignmentRepository.deleteById(new InvigilatorAssignmentId(examSessionId, venueId, staffId));
         return toResponse(assignment, staffRepository.findById(staffId).orElseThrow());
+    }
+
+    private void requireAcademicSelection(Integer examSessionId,
+            AcademicSelection selection) {
+        if (!academicRepository.matches(examSessionId, selection)) {
+            throw new IllegalArgumentException("Exam does not match the selected school, programme, year of study and course");
+        }
     }
 
     private ExamSession requireAssignableExam(Integer id) {
