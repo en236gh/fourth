@@ -11,6 +11,7 @@ import com.backend.fourth.student.entity.ExaminationPass;
 import com.backend.fourth.student.entity.Student;
 import com.backend.fourth.student.entity.StudentRegistration;
 import com.backend.fourth.student.repository.ExaminationPassRepository;
+import com.backend.fourth.student.repository.StudentProgrammeEnrolmentRepository;
 import com.backend.fourth.student.repository.StudentRegistrationRepository;
 import com.backend.fourth.venue.entity.Venue;
 import com.backend.fourth.venue.repository.VenueRepository;
@@ -43,6 +44,7 @@ public class StudentExamPassService {
     private final StudentVenueAllocationRepository allocationRepository;
     private final VenueRepository venueRepository;
     private final ExaminationPassRepository examinationPassRepository;
+        private final StudentProgrammeEnrolmentRepository studentProgrammeEnrolmentRepository;
     private final ExamPassQrService examPassQrService;
     private final ExamPassPdfService examPassPdfService;
 
@@ -61,6 +63,11 @@ public class StudentExamPassService {
 
         List<StudentExaminationSummaryResponse> results = new ArrayList<>();
         for (StudentRegistration registration : registrations) {
+                        if (studentProgrammeEnrolmentRepository
+                                        .findActiveForAcademicYear(student.getComputerNumber(), registration.getAcademicYear())
+                                        .isEmpty()) {
+                                continue;
+                        }
             List<ExamSession> sessions = examSessionRepository.findByCourseCodeAndAcademicYearAndSemester(
                     registration.getCourseCode(),
                     registration.getAcademicYear(),
@@ -187,6 +194,11 @@ public class StudentExamPassService {
         }
 
         PeriodKey period = resolvePeriod(registrations, academicYear, semester);
+        StudentProgrammeEnrolmentRepository.ProgrammeEnrolment enrolment =
+                studentProgrammeEnrolmentRepository
+                        .findActiveForAcademicYear(student.getComputerNumber(), period.academicYear())
+                        .orElseThrow(() -> new IllegalArgumentException(
+                                "You have no active programme enrolment for " + period.academicYear()));
 
         List<StudentRegistration> periodRegistrations = registrations.stream()
                 .filter(r -> Objects.equals(r.getAcademicYear(), period.academicYear())

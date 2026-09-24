@@ -9,6 +9,7 @@ import com.backend.fourth.student.entity.Student;
 import com.backend.fourth.student.entity.StudentRefreshToken;
 import com.backend.fourth.student.repository.StudentRefreshTokenRepository;
 import com.backend.fourth.student.repository.StudentRepository;
+import com.backend.fourth.student.repository.StudentProgrammeEnrolmentRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -23,6 +24,7 @@ public class StudentAuthService {
     private static final List<String> STUDENT_ROLES = List.of("STUDENT");
 
     private final StudentRepository studentRepository;
+    private final StudentProgrammeEnrolmentRepository studentProgrammeEnrolmentRepository;
     private final StudentRefreshTokenRepository studentRefreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
@@ -129,12 +131,16 @@ public class StudentAuthService {
     }
 
     private StudentProfileResponse toProfile(Student student) {
+        StudentProgrammeEnrolmentRepository.ProgrammeEnrolment enrolment =
+            studentProgrammeEnrolmentRepository
+                .findLatestActive(student.getComputerNumber())
+                .orElse(null);
         return new StudentProfileResponse(
                 student.getComputerNumber(),
                 student.getFullName(),
                 student.getSchool(),
-                student.getProgram(),
-                student.getYearOfStudy(),
+                enrolment != null ? enrolment.programmeName() : student.getProgram(),
+                enrolment != null ? enrolment.yearOfStudy() : student.getYearOfStudy(),
                 student.getStatus(),
                 student.isAccountActivated()
         );
