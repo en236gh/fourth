@@ -2,6 +2,9 @@ package com.backend.fourth.student.service;
 
 import com.backend.fourth.allocation.entity.StudentVenueAllocation;
 import com.backend.fourth.allocation.repository.StudentVenueAllocationRepository;
+import com.backend.fourth.attendance.entity.Attendance;
+import com.backend.fourth.attendance.entity.AttendanceStatus;
+import com.backend.fourth.attendance.repository.AttendanceRepository;
 import com.backend.fourth.exam.entity.ExamSession;
 import com.backend.fourth.exam.repository.ExamSessionRepository;
 import com.backend.fourth.student.dto.ExaminationPassExamItem;
@@ -44,9 +47,10 @@ public class StudentExamPassService {
     private final StudentVenueAllocationRepository allocationRepository;
     private final VenueRepository venueRepository;
     private final ExaminationPassRepository examinationPassRepository;
-        private final StudentProgrammeEnrolmentRepository studentProgrammeEnrolmentRepository;
+    private final StudentProgrammeEnrolmentRepository studentProgrammeEnrolmentRepository;
     private final ExamPassQrService examPassQrService;
     private final ExamPassPdfService examPassPdfService;
+    private final AttendanceRepository attendanceRepository;
 
     @Transactional(readOnly = true)
     public List<StudentExaminationSummaryResponse> listMyExaminations(Student student) {
@@ -85,6 +89,11 @@ public class StudentExamPassService {
                         .flatMap(a -> venueRepository.findById(a.getVenueId()))
                         .orElse(null);
 
+                Attendance attendance = attendanceRepository
+                        .findByStudentComputerNumberAndExamSessionExamSessionId(
+                                student.getComputerNumber(), session.getExamSessionId())
+                        .orElse(null);
+
                 results.add(new StudentExaminationSummaryResponse(
                         session.getExamSessionId(),
                         session.getCourseCode(),
@@ -99,7 +108,10 @@ public class StudentExamPassService {
                         venue != null ? venue.getVenueName() : null,
                         venue != null ? venue.getBuilding() : null,
                         pass != null,
-                        pass != null ? pass.getPassId() : null
+                        pass != null ? pass.getPassId() : null,
+                        attendance != null && attendance.getAttendanceStatus() != null
+                                ? attendance.getAttendanceStatus().name()
+                                : null
                 ));
             }
         }

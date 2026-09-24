@@ -14,6 +14,7 @@ public record StudentExaminationSummaryResponse(
         String venueName,
         String building,
         boolean passGenerated,
-        Long passId
+        Long passId,
+        String attendanceStatus
 ) {
 }

@@ -66,7 +66,8 @@ class AttendanceServiceTest {
         CheckInRequest request = new CheckInRequest("2022004264", 1, 1, "COMPUTER");
         Staff invigilator = createStaff();
 
-        when(assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffId(1, 1, 2)).thenReturn(true);
+        when(assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffIdAndAssignmentStatus(1, 1, 2, "PUBLISHED"))
+                .thenReturn(true);
         when(studentRepository.findByComputerNumber("2022004264")).thenReturn(Optional.of(createStudent()));
         when(examSessionRepository.findById(1)).thenReturn(Optional.of(createExamSession()));
         when(venueRepository.findById(1)).thenReturn(Optional.of(createVenue()));
@@ -178,7 +179,8 @@ class AttendanceServiceTest {
         ExamSession scheduled = createExamSessionForPeriod();
         scheduled.setStatus("SCHEDULED");
         when(examSessionRepository.findById(5)).thenReturn(Optional.of(scheduled));
-        when(assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffId(5, 16, 2)).thenReturn(true);
+        when(assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffIdAndAssignmentStatus(5, 16, 2, "PUBLISHED"))
+                .thenReturn(true);
         when(studentRepository.findByComputerNumber("2022004264")).thenReturn(Optional.of(createStudent()));
         when(venueRepository.findById(16)).thenReturn(Optional.of(createVenue()));
         when(allocationRepository.findByComputerNumberAndExamSessionId("2022004264", 5))
