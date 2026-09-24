@@ -13,6 +13,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
+import com.backend.fourth.invigilator.dto.BulkAutoAssignmentResponse;
+import com.backend.fourth.invigilator.dto.BulkPublishRequest;
 
 @RestController
 @RequestMapping("/api/admin/invigilator-assignments")
@@ -20,6 +22,19 @@ import java.util.List;
 public class AdminInvigilatorAssignmentController {
     private final AdminInvigilatorAssignmentService service;
     private final CurrentStaffResolver currentStaffResolver;
+
+    @PostMapping("/auto-assign")
+    @PreAuthorize("hasAuthority('ADMINISTRATOR')")
+    public ApiResponse<BulkAutoAssignmentResponse> autoAssignAll() {
+        return ApiResponse.success("Draft assignments generated for upcoming examinations",
+                service.autoAssignAllDrafts(currentStaffResolver.requireCurrentStaff()));
+    }
+
+    @PostMapping("/publish")
+    @PreAuthorize("hasAuthority('ADMINISTRATOR')")
+    public ApiResponse<List<AdminAssignmentResponse>> publishBulk(@Valid @RequestBody BulkPublishRequest request) {
+        return ApiResponse.success("Draft assignments published", service.publishBulk(request.examSessionIds()));
+    }
 
     @GetMapping
     @PreAuthorize("hasAuthority('ADMINISTRATOR')")

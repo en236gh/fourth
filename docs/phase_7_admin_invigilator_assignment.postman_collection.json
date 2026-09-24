@@ -21,6 +21,38 @@
   ],
   "item": [
     {
+      "name": "Bulk Automatic Assignment",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "Generate drafts for all upcoming exams (no filters)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/admin/invigilator-assignments/auto-assign"
+          }
+        },
+        {
+          "name": "Review all assignments",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/admin/invigilator-assignments"
+          }
+        },
+        {
+          "name": "Publish reviewed exams",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"examSessionIds\": [{{examSessionId}}]}" },
+            "url": "{{baseUrl}}/api/admin/invigilator-assignments/publish"
+          }
+        }
+      ]
+    },
+    {
       "name": "Academic Selection",
       "auth": {
         "type": "bearer",

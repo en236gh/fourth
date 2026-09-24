@@ -10,6 +10,7 @@ import com.backend.fourth.exam.entity.ExamSession;
 import com.backend.fourth.exam.entity.ExamVenue;
 import com.backend.fourth.exam.repository.ExamSessionRepository;
 import com.backend.fourth.exam.repository.ExamVenueRepository;
+import com.backend.fourth.exam.service.LecturerCourseAccess;
 import com.backend.fourth.incident.repository.IncidentRepository;
 import com.backend.fourth.invigilator.entity.InvigilatorAssignment;
 import com.backend.fourth.invigilator.repository.InvigilatorAssignmentRepository;
@@ -48,6 +49,7 @@ public class DashboardController {
     private final InvigilatorAssignmentRepository assignmentRepository;
     private final AllocationService allocationService;
     private final CurrentStaffResolver currentStaffResolver;
+    private final LecturerCourseAccess lecturerCourseAccess;
 
     @GetMapping("/admin")
     @PreAuthorize("hasAuthority('ADMINISTRATOR')")
@@ -111,13 +113,19 @@ public class DashboardController {
             ExamSession exam = examSessionRepository.findById(examSessionId)
                     .orElseThrow(() -> new IllegalArgumentException("Exam session not found"));
             data.put("examSessionId", examSessionId);
+            lecturerCourseAccess.requireAssigned(exam);
             data.put("allocation", allocationService.getAllocationStats(exam));
             return ApiResponse.success("Lecturer dashboard", data);
         }
 
-        long totalRegistered = registrationRepository.count();
-        long totalAllocated = allocationRepository.count();
-        data.put("totalExaminations", examSessionRepository.count());
+        List<ExamSession> exams = lecturerCourseAccess.myExams();
+        long totalRegistered = exams.stream().mapToLong(exam -> registrationRepository
+                .countByCourseCodeAndAcademicYearAndSemester(
+                        exam.getCourseCode(), exam.getAcademicYear(), exam.getSemester())).sum();
+        long totalAllocated = exams.stream().mapToLong(exam -> allocationRepository
+                .countByExamSessionId(exam.getExamSessionId())).sum();
+        data.put("courseCodes", lecturerCourseAccess.myCourseCodes());
+        data.put("totalExaminations", exams.size());
         data.put("registeredStudents", totalRegistered);
         data.put("allocatedStudents", totalAllocated);
         data.put("message", "Pass examSessionId to view venue allocation statistics for a specific examination");

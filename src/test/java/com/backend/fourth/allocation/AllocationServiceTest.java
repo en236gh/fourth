@@ -6,6 +6,8 @@ import com.backend.fourth.allocation.service.AllocationService;
 import com.backend.fourth.exam.entity.ExamSession;
 import com.backend.fourth.exam.entity.ExamVenue;
 import com.backend.fourth.exam.repository.ExamVenueRepository;
+import com.backend.fourth.exam.service.LecturerCourseAccess;
+import org.springframework.security.access.AccessDeniedException;
 import com.backend.fourth.student.entity.StudentRegistration;
 import com.backend.fourth.student.repository.StudentRegistrationRepository;
 import com.backend.fourth.student.repository.StudentRepository;
@@ -42,9 +44,29 @@ class AllocationServiceTest {
     private ExamVenueRepository examVenueRepository;
     @Mock
     private StudentVenueAllocationRepository allocationRepository;
+    @Mock
+    private LecturerCourseAccess lecturerCourseAccess;
 
     @InjectMocks
     private AllocationService allocationService;
+
+    @Test
+    void shouldRejectUnassignedLecturerBeforeReadingOrChangingAllocations() {
+        ExamSession exam = new ExamSession();
+        org.mockito.Mockito.doThrow(new AccessDeniedException("Not assigned"))
+                .when(lecturerCourseAccess).requireAssigned(exam);
+        assertThrows(AccessDeniedException.class, () -> allocationService.allocateStudentsToVenues(exam));
+        org.mockito.Mockito.verifyNoInteractions(registrationRepository, allocationRepository, examVenueRepository);
+    }
+
+    @Test
+    void shouldRejectReadingAnotherLecturersAllocations() {
+        ExamSession exam = new ExamSession();
+        org.mockito.Mockito.doThrow(new AccessDeniedException("Not assigned"))
+                .when(lecturerCourseAccess).requireReadAccess(exam);
+        assertThrows(AccessDeniedException.class, () -> allocationService.getAllocationStats(exam));
+        org.mockito.Mockito.verifyNoInteractions(registrationRepository, allocationRepository, examVenueRepository);
+    }
 
     @Test
     void shouldAllocateByCapacityFillOrder() {

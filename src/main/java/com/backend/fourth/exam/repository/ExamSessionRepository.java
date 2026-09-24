@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 public interface ExamSessionRepository extends JpaRepository<ExamSession, Integer> {
+    List<ExamSession> findByCourseCodeIn(List<String> courseCodes);
     List<ExamSession> findByExamDate(LocalDate examDate);
 
     List<ExamSession> findByStatus(String status);

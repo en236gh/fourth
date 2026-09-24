@@ -49,11 +49,86 @@ class AdminInvigilatorAssignmentServiceTest {
     private StaffRepository staffRepository;
     @Mock
     private AssignmentAcademicRepository academicRepository;
+    @Mock
+    private com.backend.fourth.invigilator.repository.AssignmentWriteLock assignmentWriteLock;
 
     private final AcademicSelection selection = new AcademicSelection(1, 2, 3, "CSC3101");
 
     @InjectMocks
     private AdminInvigilatorAssignmentService service;
+
+    @Test
+    void bulkPublishDeduplicatesExamsAndPublishesDrafts() {
+        when(examSessionRepository.findById(10)).thenReturn(Optional.of(exam(10, LocalTime.of(9, 0), LocalTime.of(11, 0))));
+        var draft = assignment(10, 1, 2, "DRAFT");
+        var published = assignment(10, 2, 2, "PUBLISHED");
+        when(assignmentRepository.findByExamSessionId(10)).thenReturn(List.of(draft, published));
+        when(staffRepository.findById(2)).thenReturn(Optional.of(staff(2, "Staff", "ACTIVE", true)));
+        when(assignmentRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        var result = service.publishBulk(List.of(10, 10));
+        assertEquals(1, result.size());
+        assertEquals("PUBLISHED", result.get(0).assignmentStatus());
+        verify(assignmentRepository).findByExamSessionId(10);
+    }
+
+    @Test
+    void bulkAssignmentAvoidsClashesAndIsSafeToRepeatWithoutHierarchy() {
+        ExamSession first = exam(10, LocalTime.of(9, 0), LocalTime.of(11, 0));
+        ExamSession second = exam(20, LocalTime.of(10, 0), LocalTime.of(12, 0));
+        first.setExamDate(LocalDate.now().plusDays(1));
+        second.setExamDate(first.getExamDate());
+        Staff invigilator = staff(1, "First", "ACTIVE", true);
+        var saved = new java.util.ArrayList<InvigilatorAssignment>();
+        when(examSessionRepository.findByStatus("SCHEDULED")).thenReturn(List.of(second, first));
+        when(examSessionRepository.findById(10)).thenReturn(Optional.of(first));
+        when(examVenueRepository.findByExamSessionIdOrderByVenueIdAsc(10)).thenReturn(List.of(venue(10, 1)));
+        when(examVenueRepository.findByExamSessionIdOrderByVenueIdAsc(20)).thenReturn(List.of(venue(20, 2)));
+        when(staffRepository.findAll()).thenReturn(List.of(invigilator));
+        when(assignmentRepository.findByStaffId(1)).thenAnswer(i -> List.copyOf(saved));
+        when(assignmentRepository.findByExamSessionIdAndVenueId(any(), any())).thenAnswer(i ->
+                saved.stream().filter(a -> a.getExamSessionId().equals(i.getArgument(0))
+                        && a.getVenueId().equals(i.getArgument(1))).toList());
+        when(assignmentRepository.save(any())).thenAnswer(i -> {
+            InvigilatorAssignment assignment = i.getArgument(0);
+            saved.add(assignment);
+            return assignment;
+        });
+
+        var result = service.autoAssignAllDrafts(invigilator);
+        assertEquals(2, result.totalExams());
+        assertEquals(1, result.createdDraftAssignments());
+        assertEquals(10, result.exams().get(0).examSessionId());
+        assertEquals(List.of(2), result.exams().get(1).understaffedVenueIds());
+        assertEquals(0, service.autoAssignAllDrafts(invigilator).createdDraftAssignments());
+        assertEquals("DRAFT", saved.get(0).getAssignmentStatus());
+        verifyNoInteractions(academicRepository);
+    }
+
+    @Test
+    void bulkAssignmentSkipsPastExamsAndReportsMissingVenues() {
+        ExamSession past = exam(10, LocalTime.of(9, 0), LocalTime.of(11, 0));
+        past.setExamDate(LocalDate.now().minusDays(1));
+        ExamSession future = exam(20, LocalTime.of(9, 0), LocalTime.of(11, 0));
+        future.setExamDate(LocalDate.now().plusDays(1));
+        when(examSessionRepository.findByStatus("SCHEDULED")).thenReturn(List.of(past, future));
+        var result = service.autoAssignAllDrafts(new Staff());
+        assertEquals(1, result.totalExams());
+        assertEquals(List.of(20), result.examsWithoutVenues());
+        assertEquals(0, result.createdDraftAssignments());
+        verifyNoInteractions(academicRepository, staffRepository);
+        verify(assignmentWriteLock).acquire();
+    }
+
+    @Test
+    void bulkAssignmentReportsShortagesWhenNoInvigilatorsAreAvailable() {
+        ExamSession future = exam(10, LocalTime.of(9, 0), LocalTime.of(11, 0));
+        future.setExamDate(LocalDate.now().plusDays(1));
+        when(examSessionRepository.findByStatus("SCHEDULED")).thenReturn(List.of(future));
+        when(examVenueRepository.findByExamSessionIdOrderByVenueIdAsc(10)).thenReturn(List.of(venue(10, 1)));
+        var result = service.autoAssignAllDrafts(new Staff());
+        assertEquals(List.of(1), result.exams().get(0).understaffedVenueIds());
+        assertEquals(0, result.createdDraftAssignments());
+    }
 
     @Test
     void shouldCreateDraftsForRequiredActiveNonConflictingInvigilators() {

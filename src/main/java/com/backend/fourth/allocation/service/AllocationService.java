@@ -6,6 +6,7 @@ import com.backend.fourth.allocation.repository.StudentVenueAllocationRepository
 import com.backend.fourth.exam.entity.ExamSession;
 import com.backend.fourth.exam.entity.ExamVenue;
 import com.backend.fourth.exam.repository.ExamVenueRepository;
+import com.backend.fourth.exam.service.LecturerCourseAccess;
 import com.backend.fourth.student.entity.Student;
 import com.backend.fourth.student.entity.StudentRegistration;
 import com.backend.fourth.student.repository.StudentRegistrationRepository;
@@ -29,9 +30,11 @@ public class AllocationService {
     private final VenueRepository venueRepository;
     private final ExamVenueRepository examVenueRepository;
     private final StudentVenueAllocationRepository allocationRepository;
+    private final LecturerCourseAccess lecturerCourseAccess;
 
     @Transactional
     public List<StudentVenueAllocation> allocateStudentsToVenues(ExamSession examSession) {
+        lecturerCourseAccess.requireAssigned(examSession);
         List<StudentRegistration> registrations = registrationRepository
                 .findByCourseCodeAndAcademicYearAndSemesterOrderByComputerNumberAsc(
                         examSession.getCourseCode(),
@@ -90,6 +93,7 @@ public class AllocationService {
 
     @Transactional(readOnly = true)
     public AllocationStatsResponse getAllocationStats(ExamSession examSession) {
+        lecturerCourseAccess.requireReadAccess(examSession);
         long registered = registrationRepository.countByCourseCodeAndAcademicYearAndSemester(
                 examSession.getCourseCode(), examSession.getAcademicYear(), examSession.getSemester());
 

@@ -29,14 +29,21 @@ public class AssignmentAcademicController {
     }
 
     @GetMapping("/years")
-    public ApiResponse<List<Map<String, Object>>> years(@RequestParam int schoolId, @RequestParam int programmeId) {
-        return ApiResponse.success("Years of study retrieved", repository.years(schoolId, programmeId));
+    public ApiResponse<List<Map<String, Object>>> years(@RequestParam int schoolId, @RequestParam int programmeId,
+            @RequestParam(required = false) Integer majorId) {
+        return ApiResponse.success("Years of study retrieved", repository.years(schoolId, programmeId, majorId));
+    }
+
+    @GetMapping("/majors")
+    public ApiResponse<List<Map<String, Object>>> majors(@RequestParam int schoolId, @RequestParam int programmeId) {
+        return ApiResponse.success("Majors retrieved", repository.majors(schoolId, programmeId));
     }
 
     @GetMapping("/courses")
     public ApiResponse<List<Map<String, Object>>> courses(@RequestParam int schoolId,
-            @RequestParam int programmeId, @RequestParam int yearOfStudy) {
-        return ApiResponse.success("Courses retrieved", repository.courses(schoolId, programmeId, yearOfStudy));
+            @RequestParam int programmeId, @RequestParam int yearOfStudy,
+            @RequestParam(required = false) Integer majorId) {
+        return ApiResponse.success("Courses retrieved", repository.courses(schoolId, programmeId, yearOfStudy, majorId));
     }
 
     @GetMapping("/exams")

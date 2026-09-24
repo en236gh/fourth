@@ -9,6 +9,7 @@ import com.backend.fourth.exam.repository.ExamVenueRepository;
 import com.backend.fourth.invigilator.dto.AdminAssignmentResponse;
 import com.backend.fourth.invigilator.dto.AcademicSelection;
 import com.backend.fourth.invigilator.repository.AssignmentAcademicRepository;
+import com.backend.fourth.invigilator.repository.AssignmentWriteLock;
 import com.backend.fourth.invigilator.dto.AdminStaffMemberResponse;
 import com.backend.fourth.invigilator.dto.AdminStaffingResponse;
 import com.backend.fourth.invigilator.dto.AutoAssignmentResponse;
@@ -23,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import com.backend.fourth.invigilator.dto.BulkAutoAssignmentResponse;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -40,6 +42,7 @@ public class AdminInvigilatorAssignmentService {
     private final StudentVenueAllocationRepository allocationRepository;
     private final StaffRepository staffRepository;
     private final AssignmentAcademicRepository academicRepository;
+    private final AssignmentWriteLock assignmentWriteLock;
 
     @Transactional(readOnly = true)
     public List<AdminAssignmentResponse> list(Integer examSessionId) {
@@ -66,6 +69,7 @@ public class AdminInvigilatorAssignmentService {
 
     @Transactional
     public AdminAssignmentResponse createDraft(CreateInvigilatorAssignmentRequest request, Staff administrator) {
+        assignmentWriteLock.acquire();
         requireAcademicSelection(request.examSessionId(), request.selection());
         ExamSession exam = requireAssignableExam(request.examSessionId());
         if (!examVenueRepository.existsById(new ExamVenueId(request.examSessionId(), request.venueId()))) {
@@ -93,14 +97,55 @@ public class AdminInvigilatorAssignmentService {
     @Transactional
     public AutoAssignmentResponse autoAssignDrafts(Integer examSessionId,
             AcademicSelection selection, Staff administrator) {
+        assignmentWriteLock.acquire();
         requireAcademicSelection(examSessionId, selection);
         ExamSession exam = requireAssignableExam(examSessionId);
+        return generateDrafts(exam, administrator);
+    }
+
+    /** Assign all scheduled exams that have not started, without academic filtering. */
+    @Transactional
+    public BulkAutoAssignmentResponse autoAssignAllDrafts(Staff administrator) {
+        assignmentWriteLock.acquire();
+        LocalDateTime now = LocalDateTime.now();
+        List<ExamSession> exams = examSessionRepository.findByStatus("SCHEDULED").stream()
+                .filter(exam -> LocalDateTime.of(exam.getExamDate(), exam.getStartTime()).isAfter(now))
+                .sorted(Comparator.comparing(ExamSession::getExamDate)
+                        .thenComparing(ExamSession::getStartTime)
+                        .thenComparing(ExamSession::getExamSessionId))
+                .toList();
+        List<AutoAssignmentResponse> results = new ArrayList<>();
+        List<Integer> withoutVenues = new ArrayList<>();
+        for (ExamSession exam : exams) {
+            if (examVenueRepository.findByExamSessionIdOrderByVenueIdAsc(exam.getExamSessionId()).isEmpty()) {
+                withoutVenues.add(exam.getExamSessionId());
+                results.add(new AutoAssignmentResponse(exam.getExamSessionId(), 0, List.of(), List.of()));
+                continue;
+            }
+            results.add(generateDrafts(exam, administrator));
+            // Make each exam's drafts visible to conflict/workload queries for the next exam.
+            assignmentRepository.flush();
+        }
+        return new BulkAutoAssignmentResponse(exams.size(),
+                results.stream().mapToInt(AutoAssignmentResponse::createdDraftAssignments).sum(),
+                withoutVenues, results);
+    }
+
+    @Transactional
+    public List<AdminAssignmentResponse> publishBulk(List<Integer> examSessionIds) {
+        assignmentWriteLock.acquire();
+        List<AdminAssignmentResponse> results = new ArrayList<>();
+        for (Integer id : examSessionIds.stream().distinct().sorted().toList()) {
+            results.addAll(publish(id));
+        }
+        return results;
+    }
+
+    private AutoAssignmentResponse generateDrafts(ExamSession exam, Staff administrator) {
+        Integer examSessionId = exam.getExamSessionId();
         List<Staff> eligible = staffRepository.findAll().stream()
                 .filter(this::isActiveInvigilator)
                 .toList();
-        if (eligible.isEmpty()) {
-            throw new IllegalStateException("No active invigilators are available");
-        }
         Map<Integer, Long> workload = eligible.stream()
             .collect(Collectors.toMap(staff -> staff.getStaffId(), staff -> activeWorkload(staff.getStaffId())));
 
@@ -145,6 +190,7 @@ public class AdminInvigilatorAssignmentService {
 
     @Transactional
     public List<AdminAssignmentResponse> publish(Integer examSessionId) {
+        assignmentWriteLock.acquire();
         requireAssignableExam(examSessionId);
         List<InvigilatorAssignment> assignments = assignmentRepository.findByExamSessionId(examSessionId);
         if (assignments.isEmpty()) {
@@ -160,6 +206,7 @@ public class AdminInvigilatorAssignmentService {
 
     @Transactional
     public AdminAssignmentResponse cancel(Integer examSessionId, Integer venueId, Integer staffId) {
+        assignmentWriteLock.acquire();
         requireAssignableExam(examSessionId);
         InvigilatorAssignment assignment = assignmentRepository.findById(
                 new InvigilatorAssignmentId(examSessionId, venueId, staffId))
@@ -171,7 +218,7 @@ public class AdminInvigilatorAssignmentService {
     private void requireAcademicSelection(Integer examSessionId,
             AcademicSelection selection) {
         if (!academicRepository.matches(examSessionId, selection)) {
-            throw new IllegalArgumentException("Exam does not match the selected school, programme, year of study and course");
+            throw new IllegalArgumentException("Exam does not match the selected school, programme, major, year of study and course");
         }
     }
 

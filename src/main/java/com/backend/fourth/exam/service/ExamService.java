@@ -32,10 +32,11 @@ public class ExamService {
     private final StudentRepository studentRepository;
     private final VenueRepository venueRepository;
     private final AttendanceService attendanceService;
+    private final LecturerCourseAccess lecturerCourseAccess;
 
     @Transactional(readOnly = true)
     public List<ExamSessionResponse> listExams() {
-        return examSessionRepository.findAll().stream()
+        return lecturerCourseAccess.visibleExams().stream()
                 .map(this::toExamResponse)
                 .toList();
     }
@@ -49,6 +50,7 @@ public class ExamService {
     @Transactional(readOnly = true)
     public List<RegisteredStudentResponse> listRegisteredStudents(Integer examSessionId) {
         ExamSession exam = requireExam(examSessionId);
+        lecturerCourseAccess.requireReadAccess(exam);
         List<StudentRegistration> registrations = registrationRepository
                 .findByCourseCodeAndAcademicYearAndSemesterOrderByComputerNumberAsc(
                         exam.getCourseCode(), exam.getAcademicYear(), exam.getSemester());
@@ -72,7 +74,10 @@ public class ExamService {
 
     @Transactional(readOnly = true)
     public List<ExamVenueResponse> listExamVenues(Integer examSessionId) {
-        requireExam(examSessionId);
+        ExamSession exam = requireExam(examSessionId);
+        if (!lecturerCourseAccess.hasAuthority("INVIGILATOR")) {
+            lecturerCourseAccess.requireReadAccess(exam);
+        }
         List<ExamVenueResponse> venues = new ArrayList<>();
         for (ExamVenue examVenue : examVenueRepository.findByExamSessionIdOrderByVenueIdAsc(examSessionId)) {
             Venue venue = venueRepository.findById(examVenue.getVenueId())

@@ -18,8 +18,11 @@ public class AssignmentAcademicRepository {
             JOIN public.programme p ON p.programme_id = pc.programme_id
             JOIN public.school s ON s.school_id = p.school_id
             JOIN public.course c ON c.course_code = pc.course_code
+            LEFT JOIN public.major m ON m.major_id = pc.major_id AND m.programme_id = p.programme_id
             """;
-    private static final String ACTIVE = " s.is_active AND p.is_active AND c.is_active ";
+    private static final String ACTIVE = " s.is_active AND p.is_active AND c.is_active AND pc.is_active"
+            + " AND (pc.major_id IS NULL OR m.is_active) ";
+    private static final String MAJOR_FILTER = " AND (CAST(? AS integer) IS NULL OR pc.major_id = ?) ";
     private static final String EXAMS = CURRICULUM + """
             JOIN public.exam_session_programme_course epc ON epc.programme_course_id = pc.programme_course_id
             JOIN public.exam_session es ON es.exam_session_id = epc.exam_session_id
@@ -38,30 +41,42 @@ public class AssignmentAcademicRepository {
                 """, schoolId);
     }
 
-    public List<Map<String, Object>> years(int schoolId, int programmeId) {
-        return jdbc.queryForList("SELECT DISTINCT pc.year_of_study " + CURRICULUM
-                + " WHERE " + ACTIVE + " AND s.school_id = ? AND p.programme_id = ? ORDER BY pc.year_of_study",
-                schoolId, programmeId);
+    public List<Map<String, Object>> majors(int schoolId, int programmeId) {
+        return jdbc.queryForList("""
+                SELECT m.major_id, m.major_code, m.major_name FROM public.major m
+                JOIN public.programme p ON p.programme_id = m.programme_id
+                JOIN public.school s ON s.school_id = p.school_id
+                WHERE s.school_id = ? AND p.programme_id = ?
+                  AND s.is_active AND p.is_active AND m.is_active ORDER BY m.major_name
+                """, schoolId, programmeId);
     }
 
-    public List<Map<String, Object>> courses(int schoolId, int programmeId, int yearOfStudy) {
+    public List<Map<String, Object>> years(int schoolId, int programmeId, Integer majorId) {
+        return jdbc.queryForList("SELECT DISTINCT pc.year_of_study " + CURRICULUM
+                + " WHERE " + ACTIVE + " AND s.school_id = ? AND p.programme_id = ?"
+                + MAJOR_FILTER + " ORDER BY pc.year_of_study", schoolId, programmeId, majorId, majorId);
+    }
+
+    public List<Map<String, Object>> courses(int schoolId, int programmeId, int yearOfStudy, Integer majorId) {
         return jdbc.queryForList("SELECT DISTINCT c.course_code, c.course_name, pc.semester " + CURRICULUM
                 + " WHERE " + ACTIVE + " AND s.school_id = ? AND p.programme_id = ? AND pc.year_of_study = ?"
-                + " ORDER BY pc.semester, c.course_code", schoolId, programmeId, yearOfStudy);
+                + MAJOR_FILTER + " ORDER BY pc.semester, c.course_code", schoolId, programmeId, yearOfStudy, majorId, majorId);
     }
 
     public List<Map<String, Object>> exams(AcademicSelection selection) {
         return jdbc.queryForList("SELECT DISTINCT es.* " + EXAMS + " WHERE " + ACTIVE
                 + " AND s.school_id = ? AND p.programme_id = ? AND pc.year_of_study = ? AND c.course_code = ?"
-                + " AND es.status <> 'COMPLETED' ORDER BY es.exam_date, es.start_time, es.exam_session_id",
-                selection.schoolId(), selection.programmeId(), selection.yearOfStudy(), selection.courseCode());
+                + MAJOR_FILTER + " AND es.status <> 'COMPLETED' ORDER BY es.exam_date, es.start_time, es.exam_session_id",
+                selection.schoolId(), selection.programmeId(), selection.yearOfStudy(), selection.courseCode(),
+                selection.majorId(), selection.majorId());
     }
 
     public boolean matches(Integer examSessionId, AcademicSelection selection) {
         if (selection == null) return false;
         return Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS (SELECT 1 " + EXAMS + " WHERE " + ACTIVE
                 + " AND s.school_id = ? AND p.programme_id = ? AND pc.year_of_study = ?"
-                + " AND c.course_code = ? AND es.exam_session_id = ?)", Boolean.class,
-                selection.schoolId(), selection.programmeId(), selection.yearOfStudy(), selection.courseCode(), examSessionId));
+                + " AND c.course_code = ? AND es.exam_session_id = ?" + MAJOR_FILTER + ")", Boolean.class,
+                selection.schoolId(), selection.programmeId(), selection.yearOfStudy(), selection.courseCode(), examSessionId,
+                selection.majorId(), selection.majorId()));
     }
 }

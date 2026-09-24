@@ -1,5 +1,46 @@
 # Invigilator assignment hierarchy
 
+## Automatic assignment across all upcoming exams (recommended)
+
+Administrators can now generate assignments with one action, without selecting
+a school, programme, course, exam or venue:
+
+`POST /api/admin/invigilator-assignments/auto-assign`
+
+Send the administrator bearer token. No request body or filters are needed.
+The backend processes all `SCHEDULED` exams whose start date/time is in the future
+(using the server's local time), in chronological order, and their linked venues.
+Academic catalog mappings are not required for this bulk flow.
+Venues must already be linked to exams and student allocations should be ready.
+
+Assignments are created as `DRAFT`, using active invigilators, avoiding overlapping
+duties and preferring staff with fewer existing assignments. Existing assignments
+are preserved; rerunning fills remaining gaps without creating duplicates.
+Staffing uses one invigilator per 50 allocated students, with a minimum of one
+per venue. When staff are unavailable, the response reports the unfilled venues.
+
+The ApiResponse `data` contains `totalExams`, `createdDraftAssignments`,
+`examsWithoutVenues`, and `exams`. Each exam result contains `examSessionId`,
+`createdDraftAssignments`, `understaffedVenueIds`, and the newly created
+`assignments`. An empty eligible schedule returns zero counts and empty lists.
+Exams without venues are reported separately and receive no assignments.
+
+Review existing and generated assignments with
+`GET /api/admin/invigilator-assignments`, then publish reviewed exams together:
+
+`POST /api/admin/invigilator-assignments/publish`
+
+```json
+{"examSessionIds": [10, 11]}
+```
+
+Publishing is transactional: an invalid/completed exam or an exam without any
+assignments rejects the entire request. Duplicate exam IDs are processed once.
+Only drafts are changed to published. Check reported shortages before publishing;
+publishing does not enforce full staffing.
+
+## Optional single-exam assignment
+
 Administrators select School -> Programme -> Year of study -> Course -> Exam -> Venue.
 An exam contains the academic year, semester, date and exam type. Shared exams
 remain a single duty even when linked to several programmes.
