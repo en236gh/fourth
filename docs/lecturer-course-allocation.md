@@ -1,4 +1,4 @@
-# Lecturer course ownership and venue allocation
+# Lecturer course ownership and examination viewing
 
 For frontend integration, response examples, and UI changes, see
 [Lecturer frontend API changes](lecturer-frontend-api-changes.md).
@@ -55,20 +55,19 @@ entry; group those rows for selectors rather than treating them as duplicate ass
 1. `GET /api/exams/my-courses` returns assigned course codes in `data`.
 2. `GET /api/exams` returns only exams for those courses. Administrators still see all exams.
 3. `GET /api/exams/{examSessionId}/registered-students` and
-   `GET /api/exams/{examSessionId}/venues` supply the allocation inputs.
-4. `POST /api/allocation/exam-session/{examSessionId}` allocates registered students to venues.
+   `GET /api/exams/{examSessionId}/venues` provide read-only examination details.
+4. Student venue assignment by lecturers has been removed; the allocation POST is unavailable.
 5. `GET /api/allocation/exam-session/{examSessionId}` returns allocation statistics and venue assignments.
 6. `GET /api/dashboard/lecturer` totals only assigned-course exams; the optional
    `examSessionId` parameter must also refer to an assigned course.
 
-Lecturers cannot read another course's registrations or allocation statistics, or allocate
-its students to venues: the API returns HTTP 403. Administrator read access and existing invigilator
+Lecturers cannot read another course's registrations or allocation statistics: the API returns HTTP 403. Administrator read access and existing invigilator
 venue access are retained. A lecturer with no course assignments sees empty exam/course
 lists and zero dashboard totals. Registration totals count registrations per exam session.
 
 An assignment alone does not create an examination, register students, or attach venues.
 The existing examination, student-registration, and exam-venue records must match the
-course, academic year, and semester. Allocation continues to use the existing venue capacity rules.
+course, academic year, and semester. Existing venue assignments remain available for attendance and examination passes.
 
 ## After the programme-major migration
 
@@ -83,12 +82,9 @@ course, academic year, and semester. Allocation continues to use the existing ve
    exams, matching registration counts, linked venue capacity, curriculum mappings,
    and existing allocations. READY_FOR_ALLOCATION means these setup checks pass;
    it does not validate venue schedule conflicts or assign students to venues.
-4. Sign in as the assigned lecturer and POST to the allocation endpoint above
-   using an exam ID from the report. No request body is needed. GET the same URL
-   to review venue assignments. Repeating POST replaces that exam's existing allocations.
+4. Sign in as the assigned lecturer and view the examination's registrations, venues,
+   and existing assignments. Download its attendance and incident report as needed.
 
-Missing operational records require explicit student, exam and venue selections.
-Do not run the old Phase 12 direct venue seed to test lecturer allocation: use the
-API so its ownership/capacity checks run. A major is context for a shared course;
-allocation currently includes all registrations for the exam's course, academic
-year and semester, not just one selected major.
+The lecturer allocation POST has been removed. Phase 17 is a diagnostic report,
+not an indication that lecturer assignment is available. Existing database venue
+assignments and setup scripts remain; no records are deleted by this change.

@@ -8,7 +8,6 @@ import com.backend.fourth.exam.entity.ExamVenue;
 import com.backend.fourth.exam.repository.ExamVenueRepository;
 import com.backend.fourth.exam.service.LecturerCourseAccess;
 import com.backend.fourth.student.entity.Student;
-import com.backend.fourth.student.entity.StudentRegistration;
 import com.backend.fourth.student.repository.StudentRegistrationRepository;
 import com.backend.fourth.student.repository.StudentRepository;
 import com.backend.fourth.venue.entity.Venue;
@@ -31,64 +30,6 @@ public class AllocationService {
     private final ExamVenueRepository examVenueRepository;
     private final StudentVenueAllocationRepository allocationRepository;
     private final LecturerCourseAccess lecturerCourseAccess;
-
-    @Transactional
-    public List<StudentVenueAllocation> allocateStudentsToVenues(ExamSession examSession) {
-        lecturerCourseAccess.requireAssigned(examSession);
-        List<StudentRegistration> registrations = registrationRepository
-                .findByCourseCodeAndAcademicYearAndSemesterOrderByComputerNumberAsc(
-                        examSession.getCourseCode(),
-                        examSession.getAcademicYear(),
-                        examSession.getSemester());
-
-        if (registrations.isEmpty()) {
-            throw new IllegalArgumentException("No registered students found for this examination");
-        }
-
-        List<ExamVenue> examVenues = examVenueRepository.findByExamSessionIdOrderByVenueIdAsc(examSession.getExamSessionId());
-        if (examVenues.isEmpty()) {
-            throw new IllegalArgumentException("No venues linked to this examination");
-        }
-
-        List<Venue> venues = new ArrayList<>();
-        int totalCapacity = 0;
-        for (ExamVenue examVenue : examVenues) {
-            Venue venue = venueRepository.findById(examVenue.getVenueId())
-                    .orElseThrow(() -> new IllegalArgumentException("Venue not found: " + examVenue.getVenueId()));
-            venues.add(venue);
-            totalCapacity += venue.getCapacity();
-        }
-
-        if (registrations.size() > totalCapacity) {
-            throw new IllegalStateException(
-                    "Registered students (" + registrations.size() + ") exceed total venue capacity (" + totalCapacity + ")");
-        }
-
-        allocationRepository.deleteByExamSessionId(examSession.getExamSessionId());
-
-        List<StudentVenueAllocation> allocations = new ArrayList<>();
-        int studentIndex = 0;
-
-        for (Venue venue : venues) {
-            int studentsAssigned = 0;
-            while (studentIndex < registrations.size() && studentsAssigned < venue.getCapacity()) {
-                StudentRegistration registration = registrations.get(studentIndex);
-                StudentVenueAllocation allocation = new StudentVenueAllocation();
-                allocation.setComputerNumber(registration.getComputerNumber());
-                allocation.setExamSessionId(examSession.getExamSessionId());
-                allocation.setVenueId(venue.getVenueId());
-                allocations.add(allocationRepository.save(allocation));
-                studentIndex++;
-                studentsAssigned++;
-            }
-        }
-
-        if (studentIndex < registrations.size()) {
-            throw new IllegalStateException("Unable to allocate all registered students");
-        }
-
-        return allocations;
-    }
 
     @Transactional(readOnly = true)
     public AllocationStatsResponse getAllocationStats(ExamSession examSession) {
