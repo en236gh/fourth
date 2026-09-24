@@ -13,6 +13,6 @@ public record AllocationStatsResponse(
     public record VenueFillStats(Integer venueId, String venueName, int capacity, long allocated) {
     }
 
-    public record AllocationItem(String computerNumber, String studentName, Integer venueId, String venueName, String seatNumber) {
+    public record AllocationItem(String computerNumber, String studentName, Integer venueId, String venueName) {
     }
 }

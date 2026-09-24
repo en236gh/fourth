@@ -13,7 +13,6 @@ public record StudentExaminationSummaryResponse(
         boolean allocated,
         String venueName,
         String building,
-        String seatNumber,
         boolean passGenerated,
         Long passId
 ) {

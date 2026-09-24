@@ -91,7 +91,6 @@ public class StudentExamPassService {
                         allocation.isPresent(),
                         venue != null ? venue.getVenueName() : null,
                         venue != null ? venue.getBuilding() : null,
-                        allocation.map(StudentVenueAllocation::getSeatNumber).orElse(null),
                         pass != null,
                         pass != null ? pass.getPassId() : null
                 ));
@@ -158,8 +157,7 @@ public class StudentExamPassService {
                         item.startTime(),
                         item.endTime(),
                         item.venueName(),
-                        item.building(),
-                        item.seatNumber()))
+                        item.building()))
                 .toList();
 
         return examPassPdfService.buildPdf(new ExamPassPdfService.ExaminationPassDocumentData(
@@ -236,8 +234,7 @@ public class StudentExamPassService {
                         a.session().getExamType(),
                         a.session().getStatus(),
                         a.venue().getVenueName(),
-                        a.venue().getBuilding(),
-                        a.allocation().getSeatNumber()))
+                        a.venue().getBuilding()))
                 .toList();
 
         List<ExamSession> sessions = allocated.stream().map(AllocatedExam::session).toList();

@@ -1,4 +1,4 @@
--- Phase 12: Seed demo registrations and student seat allocations.
+-- Phase 12: Seed demo registrations and student venue assignments.
 -- Run after phases 9, 10, and 11.
 -- The demo students are registered by programme family so every seeded
 -- examination session has students for lecturer and administrator testing.
@@ -103,11 +103,7 @@ assigned_students AS (
     SELECT
         ranked.computer_number,
         ranked.exam_session_id,
-        venues.venue_id,
-        ROW_NUMBER() OVER (
-            PARTITION BY ranked.exam_session_id, venues.venue_id
-            ORDER BY ranked.computer_number
-        ) AS seat_position
+        venues.venue_id
     FROM ranked_students ranked
     JOIN venue_order venues
       ON venues.exam_session_id = ranked.exam_session_id
@@ -115,18 +111,15 @@ assigned_students AS (
      AND ranked.student_position <= venues.capacity_before + venues.capacity
 )
 INSERT INTO public.student_venue_allocation (
-    computer_number, exam_session_id, venue_id, seat_number
+    computer_number, exam_session_id, venue_id
 )
 SELECT
     computer_number,
     exam_session_id,
-    venue_id,
-    CHR(ASCII('A') + ((venue_id - 1) % 26))
-        || LPAD(seat_position::text, 2, '0')
+    venue_id
 FROM assigned_students
 ON CONFLICT (computer_number, exam_session_id) DO UPDATE
-SET venue_id = EXCLUDED.venue_id,
-    seat_number = EXCLUDED.seat_number;
+SET venue_id = EXCLUDED.venue_id;
 
 COMMIT;
 

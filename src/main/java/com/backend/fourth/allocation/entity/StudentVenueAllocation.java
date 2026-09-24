@@ -21,6 +21,4 @@ public class StudentVenueAllocation {
     @Column(name = "venue_id", nullable = false)
     private Integer venueId;
 
-    @Column(name = "seat_number")
-    private String seatNumber;
 }

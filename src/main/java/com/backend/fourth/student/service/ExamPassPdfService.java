@@ -139,11 +139,11 @@ public class ExamPassPdfService {
     }
 
     private PdfPTable examinationsTable(List<ExaminationRow> examinations, Font font) throws DocumentException {
-        PdfPTable table = new PdfPTable(6);
+        PdfPTable table = new PdfPTable(5);
         table.setWidthPercentage(100);
-        table.setWidths(new float[]{1.2f, 1.4f, 1.2f, 1.6f, 1.4f, 0.8f});
+        table.setWidths(new float[]{1.2f, 1.4f, 1.2f, 1.6f, 1.4f});
 
-        String[] headers = {"Course", "Date", "Time", "Venue", "Building", "Seat"};
+        String[] headers = {"Course", "Date", "Time", "Venue", "Building"};
         for (String header : headers) {
             PdfPCell cell = new PdfPCell(new Phrase(header, font));
             cell.setBackgroundColor(BaseColor.LIGHT_GRAY);
@@ -157,7 +157,6 @@ public class ExamPassPdfService {
             table.addCell(cell(exam.startTime() + "–" + exam.endTime(), font));
             table.addCell(cell(exam.venueName(), font));
             table.addCell(cell(exam.building(), font));
-            table.addCell(cell(exam.seatNumber(), font));
         }
         return table;
     }
@@ -182,8 +181,7 @@ public class ExamPassPdfService {
             String startTime,
             String endTime,
             String venueName,
-            String building,
-            String seatNumber
+            String building
     ) {
     }
 

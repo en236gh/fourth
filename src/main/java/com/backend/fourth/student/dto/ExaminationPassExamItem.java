@@ -9,7 +9,6 @@ public record ExaminationPassExamItem(
         String examType,
         String examStatus,
         String venueName,
-        String building,
-        String seatNumber
+        String building
 ) {
 }

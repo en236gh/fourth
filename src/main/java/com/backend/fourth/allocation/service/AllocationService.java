@@ -70,17 +70,16 @@ public class AllocationService {
         int studentIndex = 0;
 
         for (Venue venue : venues) {
-            int seatsUsed = 0;
-            while (studentIndex < registrations.size() && seatsUsed < venue.getCapacity()) {
+            int studentsAssigned = 0;
+            while (studentIndex < registrations.size() && studentsAssigned < venue.getCapacity()) {
                 StudentRegistration registration = registrations.get(studentIndex);
                 StudentVenueAllocation allocation = new StudentVenueAllocation();
                 allocation.setComputerNumber(registration.getComputerNumber());
                 allocation.setExamSessionId(examSession.getExamSessionId());
                 allocation.setVenueId(venue.getVenueId());
-                allocation.setSeatNumber(venueLetter(venue.getVenueId()) + String.format("%02d", seatsUsed + 1));
                 allocations.add(allocationRepository.save(allocation));
                 studentIndex++;
-                seatsUsed++;
+                studentsAssigned++;
             }
         }
 
@@ -129,8 +128,7 @@ public class AllocationService {
                     allocation.getComputerNumber(),
                     student != null ? student.getFullName() : null,
                     allocation.getVenueId(),
-                    venue != null ? venue.getVenueName() : null,
-                    allocation.getSeatNumber()));
+                    venue != null ? venue.getVenueName() : null));
         }
 
         return new AllocationStatsResponse(
@@ -142,8 +140,4 @@ public class AllocationService {
                 items);
     }
 
-    private String venueLetter(Integer venueId) {
-        int offset = Math.max(0, venueId - 1) % 26;
-        return String.valueOf((char) ('A' + offset));
-    }
 }

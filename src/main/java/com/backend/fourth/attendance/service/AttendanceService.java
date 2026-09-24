@@ -78,7 +78,6 @@ public class AttendanceService {
                 student.getPhotoPath(),
                 allocatedVenue.getVenueId(),
                 allocatedVenue.getVenueName(),
-                allocation.getSeatNumber(),
                 alreadyCheckedIn);
     }
 

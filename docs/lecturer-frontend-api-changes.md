@@ -1,15 +1,15 @@
-# Lecturer frontend: course ownership and seat allocation
+# Lecturer frontend: course ownership and venue allocation
 
 ## What changed
 
 Lecturer access is now based on the signed-in staff member's entries in
-`course_lecturer`. A lecturer can view registrations and allocate seats only for
+`course_lecturer`. A lecturer can view registrations and assign students to venues only for
 examinations belonging to their assigned courses. Existing endpoint URLs remain
 the same, and `GET /api/exams/my-courses` is new.
 
 Previously, the exam list and lecturer dashboard included data across all courses.
 They now include only the lecturer's assigned courses. Requests for another course's
-registrations, venues, allocation statistics, or seat allocation return HTTP `403`
+registrations, venues, allocation statistics, or venue allocation return HTTP `403`
 for lecturer accounts. Administrator read access is unchanged.
 
 Every request below uses the existing login token:
@@ -45,8 +45,8 @@ For SQL setup and readiness checks after V30, see
 | `GET /api/exams` | Returns only exams for assigned courses. Populate the examination selector from this response. |
 | `GET /api/exams/{examSessionId}/registered-students` | Returns registrations only when the lecturer owns the course. |
 | `GET /api/exams/{examSessionId}/venues` | Returns linked venues only when the lecturer owns the course. |
-| `POST /api/allocation/exam-session/{examSessionId}` | Allocates seats for an assigned course. No request body. |
-| `GET /api/allocation/exam-session/{examSessionId}` | Returns seat assignments and allocation totals for an assigned course. |
+| `POST /api/allocation/exam-session/{examSessionId}` | Assigns students to venues for an assigned course. No request body. |
+| `GET /api/allocation/exam-session/{examSessionId}` | Returns venue assignments and allocation totals for an assigned course. |
 | `GET /api/dashboard/lecturer` | Totals only assigned-course exams; adds `courseCodes`. |
 | `GET /api/dashboard/lecturer?examSessionId={examSessionId}` | Returns allocation statistics for one assigned exam. |
 
@@ -119,10 +119,10 @@ and `capacity`. Both endpoints return arrays inside `data`.
 ```
 
 `registeredStudents` counts registrations per exam session, and `allocatedStudents`
-counts seat allocations per exam session. These are not distinct student headcounts
+counts venue allocations per exam session. These are not distinct student headcounts
 across all courses or exam sessions.
 
-### Allocate seats
+### Assign students to venues
 
 `POST /api/allocation/exam-session/22` with no request body:
 
@@ -134,14 +134,13 @@ across all courses or exam sessions.
     {
       "computerNumber": "2022004264",
       "examSessionId": 22,
-      "venueId": 1,
-      "seatNumber": "A01"
+      "venueId": 1
     }
   ]
 }
 ```
 
-The backend chooses seats using registered students and linked venue capacity.
+The backend assigns venues using registered students and linked venue capacity.
 The frontend does not submit seat numbers or a student list. Repeating this POST
 replaces the examination's existing allocations, so do not call it on page load or
 automatically retry it. Disable the allocation button while the request is pending.
@@ -167,8 +166,7 @@ automatically retry it. Disable the allocation button while the request is pendi
         "computerNumber": "2022004264",
         "studentName": "Demo Student",
         "venueId": 1,
-        "venueName": "Demo Hall",
-        "seatNumber": "A01"
+        "venueName": "Demo Hall"
       }
     ]
   }
@@ -220,14 +218,14 @@ Continue using the application's existing expired-token/session handling.
 ## Demo setup and frontend acceptance checks
 
 The account-to-course mappings and SQL execution order are in
-[Lecturer course ownership and seat allocation](lecturer-course-allocation.md).
+[Lecturer course ownership and venue allocation](lecturer-course-allocation.md).
 The database scripts must be applied before testing; Flyway is disabled, so a backend
 restart alone does not seed the assignments.
 
 - Sign in as `lecturer2@gmail.com`: assigned courses include `CSC1202`; the exam
   selector contains only that account's assigned-course exams.
-- Select an assigned exam and verify registrations, venues, and existing seats load.
-- Allocate seats and confirm refreshed statistics and dashboard totals.
+- Select an assigned exam and verify registrations, venues, and existing venue assignments load.
+- Assign students to venues and confirm refreshed statistics and dashboard totals.
 - Attempt another lecturer's exam ID: allocation and registration/detail requests
   return `403`, and the UI does not retain the previous student's information.
 - Switch lecturer accounts and verify cached exam/student data is cleared.
@@ -235,3 +233,28 @@ restart alone does not seed the assignments.
 
 Existing assignments are preserved by the seed scripts, so an account with additional
 course links can legitimately see more than its single demo course.
+
+## Seat numbers removed
+
+Students are assigned to venues only; numbered seats are no longer generated.
+Remove seat-number fields and columns from student screens, attendance lookups,
+allocation details, and examination passes. These responses no longer contain
+`seatNumber`, and generated PDF passes no longer display a Seat column.
+
+For existing databases, apply `V31__remove_seat_numbers.sql` after earlier migrations
+and legacy demo seeds. Flyway is disabled, so run this migration manually.
+Historical migrations and the database snapshot retain the old column for replay;
+do not rerun historical seat-number seeds after V31. The Phase 12 venue seed is
+compatible with the updated schema.
+
+## Attendance and incident PDF download
+
+`GET /api/reports/exam-session/{examSessionId}/pdf` downloads one PDF containing
+separate present/attending and absent student lists, followed by incidents.
+The UNZA logo appears above the report title. The endpoint and download handling
+are unchanged; no additional frontend requests are needed.
+
+The attending list includes PRESENT, LATE and WRONG_VENUE check-ins. The absent
+list includes recorded ABSENT students and their assigned venues. Absences are
+finalized by the existing end-examination process, so download after completing
+the exam for the final absence list. No seat numbers appear in either list.
