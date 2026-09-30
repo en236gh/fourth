@@ -75,7 +75,7 @@ public class SchedulingReviewService {
         lock.acquire();access.administrator();
         var rows=jdbc.queryForList("SELECT * FROM examination_change_request WHERE request_id=?",id);
         if(rows.isEmpty()) throw new IllegalArgumentException("Change request not found.");
-        var row=rows.getFirst();access.coordinator(((Number)row.get("period_id")).intValue());
+        var row=rows.getFirst();
         if(!"PENDING".equals(row.get("status"))) throw new IllegalStateException("This request has already been decided. Reload its status.");
         return jdbc.queryForMap("""
                 UPDATE examination_change_request SET status=?,decision=?,decided_by_staff_id=?,decided_at=CURRENT_TIMESTAMP

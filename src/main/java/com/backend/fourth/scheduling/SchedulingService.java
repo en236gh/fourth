@@ -30,21 +30,24 @@ public class SchedulingService {
     public record Generation(Result result, Map<String,Object> period) {}
 
     public List<Map<String,Object>> list() {
-        return jdbc.queryForList("SELECT * FROM examination_period ORDER BY start_date DESC, period_id DESC");
+        return jdbc.queryForList("""
+            SELECT period_id,name,academic_year,semester,exam_type,start_date,end_date,timezone,status,revision,published_at
+            FROM examination_period ORDER BY start_date DESC, period_id DESC
+            """);
     }
 
     @Transactional
     public Map<String,Object> create(SchedulingRequests.Period request) {
         writeLock.acquire();
-        int actor=access.administrator();
+        access.administrator();
         List<SchedulingRequests.DailySlot> slots=validateSetup(request);
         if (Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM examination_period WHERE academic_year=? AND semester=? AND exam_type=?)",
                 Boolean.class, request.academicYear(),request.semester(),request.examType())))
             throw new IllegalStateException("An examination period already exists for this academic year, semester and exam type.");
         Integer id = jdbc.queryForObject("""
-                INSERT INTO examination_period(name,academic_year,semester,exam_type,start_date,end_date,timezone,coordinator_staff_id)
-                VALUES (?,?,?,?,?,?,?,?) RETURNING period_id
-                """, Integer.class,request.name().trim(),request.academicYear(),request.semester(),request.examType(),request.startDate(),request.endDate(),timezone,actor);
+                INSERT INTO examination_period(name,academic_year,semester,exam_type,start_date,end_date,timezone)
+                VALUES (?,?,?,?,?,?,?) RETURNING period_id
+                """, Integer.class,request.name().trim(),request.academicYear(),request.semester(),request.examType(),request.startDate(),request.endDate(),timezone);
         for (int day : request.daysOfWeek()) for (var slot : slots)
             jdbc.update("INSERT INTO examination_period_slot VALUES (?,?,?,?)",id,day,slot.startTime(),slot.endTime());
         return detail(id);
@@ -84,8 +87,8 @@ public class SchedulingService {
 
     public Map<String,Object> detail(int id) {
         Map<String,Object> result = new LinkedHashMap<>(period(id));
+        result.remove("coordinator_staff_id");
         result.put("canEdit",access.canEdit(id));
-        result.put("canAssignCoordinator",access.isLead());
         result.put("slots",jdbc.queryForList("SELECT day_of_week,start_time,end_time FROM examination_period_slot WHERE period_id=? ORDER BY day_of_week,start_time",id));
         result.put("courses",jdbc.queryForList("""
                 SELECT pc.course_code,c.course_name,pc.duration_minutes,
@@ -268,21 +271,6 @@ public class SchedulingService {
 
     public List<Map<String,Object>> audit() { return jdbc.queryForList("SELECT * FROM exam_allocation_audit ORDER BY exam_session_id,computer_number"); }
 
-    @Transactional
-    public Map<String,Object> coordinator(int id, SchedulingRequests.Coordinator request) {
-        writeLock.acquire();
-        access.lead();
-        var p=period(id);
-        if (((Number)p.get("revision")).longValue()!=request.revision())
-            throw new IllegalStateException("Timetable changed. Reload before reassigning the coordinator.");
-        if (!Boolean.TRUE.equals(jdbc.queryForObject("""
-                SELECT EXISTS(SELECT 1 FROM staff s JOIN staff_role sr USING(staff_id) JOIN role r USING(role_id)
-                WHERE s.staff_id=? AND s.account_status='ACTIVE' AND r.name='ADMINISTRATOR')
-                """,Boolean.class,request.staffId()))) throw new IllegalArgumentException("Coordinator must be an active administrator.");
-        jdbc.update("UPDATE examination_period SET coordinator_staff_id=?,revision=revision+1 WHERE period_id=?",request.staffId(),id);
-        return detail(id);
-    }
-
     public List<Map<String,Object>> history(int id) {
         period(id);
         return jdbc.queryForList("SELECT * FROM scheduling_audit WHERE period_id=? ORDER BY audit_id",id);
@@ -321,7 +309,7 @@ public class SchedulingService {
 
     private Map<String,Object> editable(int id,long revision) {
         writeLock.acquire();
-        access.coordinator(id);
+        access.administrator();
         Map<String,Object> p=period(id);
         if (!timezone.equals(p.get("timezone"))) throw new IllegalStateException("Institution timezone differs from this period.");
         if (!"DRAFT".equals(p.get("status"))) throw new IllegalStateException("Published periods are locked. No timetable or allocation changes were made.");

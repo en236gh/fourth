@@ -43,13 +43,14 @@ class SchedulingPostgresTest {
         executeResource("/db/migration/V35__published_time_amendments.sql");
         executeResource("/db/migration/V36__scheduling_integrity_hardening.sql");
         executeResource("/db/migration/V37__approved_placement_amendments.sql");
+        executeResource("/db/migration/V38__administrator_owned_scheduling.sql");
         jdbc.update("INSERT INTO course VALUES ('A','One student',true),('B','Other students',true),('C','Shared student',true),('D','Large course',true)");
         jdbc.update("INSERT INTO student VALUES ('1','One'),('2','Two'),('3','Three'),('4','Four')");
         jdbc.update("INSERT INTO student_registration VALUES ('1','A','2090/2091',1),('2','B','2090/2091',1),('1','C','2090/2091',1),('1','D','2090/2091',1),('2','D','2090/2091',1),('3','D','2090/2091',1)");
         jdbc.update("INSERT INTO venue(venue_id,venue_name,building,capacity,examination_capacity) VALUES (1,'Room 1','Main',100,2),(2,'Room 2','Main',100,2)");
         jdbc.update("INSERT INTO staff VALUES (1,'ACTIVE'),(2,'ACTIVE')");
-        jdbc.update("INSERT INTO role VALUES (1,'INVIGILATOR')");
-        jdbc.update("INSERT INTO staff_role VALUES (1,1),(2,1)");
+        jdbc.update("INSERT INTO role VALUES (1,'INVIGILATOR'),(2,'ADMINISTRATOR')");
+        jdbc.update("INSERT INTO staff_role VALUES (1,1),(2,1),(1,2)");
         context=new AnnotationConfigApplicationContext();
         context.register(Transactions.class);
         context.registerBean(JdbcTemplate.class,()->jdbc);
@@ -171,26 +172,16 @@ class SchedulingPostgresTest {
         jdbc.update("INSERT INTO student_registration VALUES ('3','A','2090/2091',1)");
         assertTrue(service.validate(id).problems().stream().anyMatch(p->p.contains("allocations differ")));
     }
-    @Test void coordinatorReassignmentRequiresLeadAndStaleReplayCannotOverwrite() {
+    @Test void ordinaryAdministratorCanManageDraftWithoutCoordinatorAssignment() {
         int id=create("A");generate(id,1);
-        var resolver=context.getBean(com.backend.fourth.common.security.CurrentStaffResolver.class);
-        var actor=resolver.requireCurrentStaff();
-        assertThrows(org.springframework.security.access.AccessDeniedException.class,()->service.coordinator(id,new SchedulingRequests.Coordinator(2,2)));
-        jdbc.update("INSERT INTO role VALUES (2,'ADMINISTRATOR')");
-        jdbc.update("INSERT INTO staff_role VALUES (2,2)");
-        jdbc.update("INSERT INTO scheduling_lead_permission(staff_id,grant_reason) VALUES (1,'Disposable test lead')");
-        service.coordinator(id,new SchedulingRequests.Coordinator(2,2));
-        assertThrows(org.springframework.security.access.AccessDeniedException.class,()->generate(id,3));
-        assertTrue(jdbc.queryForObject("SELECT count(*)>0 FROM scheduling_audit WHERE period_id=? AND action='DENIED'",Boolean.class,id));
-        actor.setStaffId(2);
-        assertThrows(IllegalStateException.class,()->generate(id,2));
+        assertFalse(service.detail(id).containsKey("coordinator_staff_id"));
+        service.edit(id,session(id,"A"),new SchedulingRequests.Edit(2,LocalDate.of(2090,1,3),LocalTime.of(11,0),List.of(2)));
         generate(id,3);
-        assertThrows(IllegalStateException.class,()->generate(id,3));
+        assertThrows(IllegalStateException.class,()->generate(id,2));
         assertEquals(1,jdbc.queryForObject("SELECT count(*) FROM exam_session WHERE period_id=?",Integer.class,id));
         staffEveryBooking(id);service.publish(id,4);
-        assertThrows(IllegalStateException.class,()->service.publish(id,4));
-        assertEquals(5,revision(id));
-        assertTrue(jdbc.queryForObject("SELECT count(*)>0 FROM scheduling_audit WHERE period_id=? AND actor_staff_id=2 AND action='UPDATE'",Boolean.class,id));
+        assertEquals("PUBLISHED",service.detail(id).get("status"));
+        assertFalse(jdbc.queryForObject("SELECT count(*)>0 FROM scheduling_audit WHERE period_id=? AND action='DENIED'",Boolean.class,id));
     }
     @Test void alternativesKeepOtherExamsFixedAndSavedSuggestionIsRevalidated() {
         int id=create("A","C");generate(id,1);
@@ -234,21 +225,16 @@ class SchedulingPostgresTest {
     @Test void publishedTimeAmendmentRequiresApprovalRevalidationAuditAndIndependentNotifications() {
         int id=create("A");generate(id,1);staffEveryBooking(id);service.publish(id,2);
         int exam=session(id,"A");
-        jdbc.update("INSERT INTO role VALUES (2,'ADMINISTRATOR')");jdbc.update("INSERT INTO staff_role VALUES (1,2),(2,2)");
-        jdbc.update("INSERT INTO scheduling_lead_permission(staff_id,grant_reason) VALUES (1,'Test lead'),(2,'Test reviewer')");
         jdbc.update("INSERT INTO course_lecturer VALUES ('A',2)");
         var amendments=context.getBean(SchedulingAmendmentService.class);
         var notifications=context.getBean(SchedulingNotificationService.class);
-        var actor=context.getBean(com.backend.fourth.common.security.CurrentStaffResolver.class).requireCurrentStaff();
         var allocations=service.detail(id).get("allocations");
         var date=LocalDate.of(2090,1,3);
         var proposal=amendments.propose(id,new SchedulingAmendmentService.Proposal(exam,3,date,LocalTime.of(11,0),"Room opening time corrected"));
         long amendment=((Number)proposal.get("amendment_id")).longValue();
         assertThrows(IllegalStateException.class,()->amendments.apply(id,amendment));
-        assertThrows(IllegalStateException.class,()->amendments.decide(id,amendment,new SchedulingAmendmentService.Decision("APPROVED","Self review forbidden")));
-        actor.setStaffId(2);
         amendments.decide(id,amendment,new SchedulingAmendmentService.Decision("APPROVED","Verified with faculty"));
-        actor.setStaffId(1);
+        assertEquals(LocalDate.of(2090,1,2),jdbc.queryForObject("SELECT exam_date FROM exam_session WHERE exam_session_id=?",java.sql.Date.class,exam).toLocalDate());
         assertThrows(org.springframework.dao.DataAccessException.class,()->jdbc.update("UPDATE exam_session SET exam_date=? WHERE exam_session_id=?",date,exam));
         int venue=jdbc.queryForObject("SELECT venue_id FROM exam_venue WHERE exam_session_id=?",Integer.class,exam);
         service.unavailable(venue,new SchedulingRequests.Unavailability(date.atTime(11,0),date.atTime(13,0),"New conflict after approval"));
@@ -262,7 +248,11 @@ class SchedulingPostgresTest {
         assertThrows(IllegalStateException.class,()->amendments.apply(id,amendment));
         assertEquals(3,amendments.notifications(id,amendment).size());
         assertTrue(amendments.notifications(id,amendment).stream().allMatch(n->"AVAILABLE".equals(n.get("delivery_status"))));
-        notifications.deliver(amendment);assertEquals(3,amendments.notifications(id,amendment).size());assertEquals(4,revision(id));
+        jdbc.update("UPDATE examination_notification SET delivery_status='FAILED' WHERE amendment_id=?",amendment);
+        amendments.retryNotifications(id,amendment);
+        assertTrue(amendments.notifications(id,amendment).stream().allMatch(n->"AVAILABLE".equals(n.get("delivery_status"))));
+        assertEquals(3,amendments.notifications(id,amendment).size());
+        assertEquals(4,revision(id));
         var security=org.springframework.security.core.context.SecurityContextHolder.getContext();
         security.setAuthentication(new org.springframework.security.authentication.UsernamePasswordAuthenticationToken("1","",List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("STUDENT"))));
         try {

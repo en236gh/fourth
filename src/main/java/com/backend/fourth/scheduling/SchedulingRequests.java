@@ -21,7 +21,6 @@ public final class SchedulingRequests {
     public record Revision(@Min(0) long revision) {}
     public record Edit(@Min(0) long revision, @NotNull LocalDate examDate, @NotNull LocalTime startTime,
                        @NotEmpty @Size(max=100) List<@NotNull @Positive Integer> venueIds) {}
-    public record Coordinator(@Min(0) long revision, @Positive int staffId) {}
     public record Capacity(@Min(1) int examinationCapacity) {}
     public record Unavailability(@NotNull LocalDateTime startsAt, @NotNull LocalDateTime endsAt,
                                  @NotBlank @Size(max=500) String reason) {}

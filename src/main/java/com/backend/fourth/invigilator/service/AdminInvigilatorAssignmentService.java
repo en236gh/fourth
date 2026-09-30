@@ -148,7 +148,7 @@ public class AdminInvigilatorAssignmentService {
     }
 
     private AutoAssignmentResponse generateDrafts(ExamSession exam, Staff administrator) {
-        if (exam.getPeriodId()!=null) schedulingAccess.coordinator(exam.getPeriodId());
+        if (exam.getPeriodId()!=null) schedulingAccess.administrator();
         Integer examSessionId = exam.getExamSessionId();
         List<Staff> eligible = staffRepository.findAll().stream()
                 .filter(this::isActiveInvigilator)
@@ -242,7 +242,7 @@ public class AdminInvigilatorAssignmentService {
     private ExamSession requireAssignableExam(Integer id) {
         ExamSession exam = examSessionRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Exam session not found"));
-        if (exam.getPeriodId()!=null) schedulingAccess.coordinator(exam.getPeriodId());
+        if (exam.getPeriodId()!=null) schedulingAccess.administrator();
         if (exam.getPeriodId()!=null && exam.isSchedulePublished()) {
             throw new IllegalStateException("Published period staffing is locked");
         }

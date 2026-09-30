@@ -61,7 +61,7 @@ public class SchedulingAmendmentService {
     }
     @Transactional
     public Map<String,Object> propose(int period,Proposal request) {
-        lock.acquire();access.coordinator(period);
+        lock.acquire();access.administrator();
         var exam=requireFutureExam(period,request.examSessionId(),request.revision());
         long duration=Duration.between(((Time)exam.get("start_time")).toLocalTime(),((Time)exam.get("end_time")).toLocalTime()).toMinutes();
         var end=request.examDate().atTime(request.startTime()).plusMinutes(duration);
@@ -77,9 +77,8 @@ public class SchedulingAmendmentService {
     }
     @Transactional
     public Map<String,Object> decide(int period,long id,Decision decision) {
-        lock.acquire();access.lead();var a=amendment(period,id);
+        lock.acquire();access.administrator();var a=amendment(period,id);
         if(!"PENDING".equals(a.get("status"))) throw new IllegalStateException("Amendment already reviewed. Reload its status.");
-        if(Objects.equals(a.get("proposed_by_staff_id"),staff.requireCurrentStaff().getStaffId())) throw new IllegalStateException("A different lead administrator must review this proposal.");
         if("APPROVED".equals(decision.status())) {
             requireFutureExam(period,((Number)a.get("exam_session_id")).intValue(),((Number)a.get("expected_revision")).longValue());
             validateScope(period,id);
@@ -89,14 +88,10 @@ public class SchedulingAmendmentService {
     }
     @Transactional
     public Map<String,Object> apply(int period,long id) {
-        lock.acquire();access.coordinator(period);var a=amendment(period,id);
+        lock.acquire();access.administrator();var a=amendment(period,id);
         if(!"APPROVED".equals(a.get("status"))) throw new IllegalStateException("Only an approved unapplied amendment can be applied. Check its current status before retrying.");
         int exam=((Number)a.get("exam_session_id")).intValue();
         var current=requireFutureExam(period,exam,((Number)a.get("expected_revision")).longValue());
-        if(!Boolean.TRUE.equals(jdbc.queryForObject("""
-                SELECT EXISTS(SELECT 1 FROM scheduling_lead_permission l JOIN staff s USING(staff_id)
-                JOIN staff_role sr USING(staff_id) JOIN role r USING(role_id) WHERE l.staff_id=? AND s.account_status='ACTIVE' AND r.name='ADMINISTRATOR')
-                """,Boolean.class,a.get("reviewed_by_staff_id")))) throw new IllegalStateException("Reviewer no longer holds active lead permission. Submit a new proposal.");
         var date=((Date)a.get("exam_date")).toLocalDate();var start=((Time)a.get("start_time")).toLocalTime();var end=((Time)a.get("end_time")).toLocalTime();
         validateScope(period,id);
         snapshot(id,exam,"before_arrangement");
@@ -222,7 +217,7 @@ public class SchedulingAmendmentService {
 
     @Transactional
     public List<Map<String,Object>> retryNotifications(int period,long id) {
-        lock.acquire();access.coordinator(period);
+        lock.acquire();access.administrator();
         if(!"APPLIED".equals(amendment(period,id).get("status"))) throw new IllegalStateException("Notifications require an applied amendment.");
         try { notifications.deliver(id); }
         catch(RuntimeException ex) {

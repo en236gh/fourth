@@ -5,8 +5,10 @@ Administrators can create one examination period per academic year/semester/exam
 type, select courses, generate a draft with exam-specific student allocations,
 review or move examinations, assign invigilators, validate, and publish.
 
-For frontend impact organized by administrator, lecturer, student and invigilator
-dashboards, see the [dashboard integration map](examination-scheduling-dashboard-integration.md).
+For final dashboard-by-dashboard frontend contracts, see the
+[Examination Dashboard Integration guides](dashboard-integration/README.md).
+The earlier [dashboard integration map](examination-scheduling-dashboard-integration.md)
+remains a quick overview.
 
 ## Workflow flowchart
 
@@ -64,9 +66,9 @@ published records read-only except for that explicit proposal/review/apply flow.
 | Lecturer counts | Count only registered students with a booking for the selected exam. Stale rows are excluded and reported as `invalidAllocationRecords`. Added unallocated and attended counts. |
 | Publication | Independent revalidation, registration coverage, venue capacity, interval clashes and active invigilator staffing are checked in the publishing transaction. |
 | Access control | Existing JWT authorities and lecturer course ownership are reused. New administration APIs require `ADMINISTRATOR`. Attendance reads are scoped to the authorised course or assigned venue. |
-| Staff coordination | Each period has a coordinator. Coordinator assignment requires an explicitly provisioned scheduling lead; administrator role alone does not grant lead permission. Changes and approvals are audited. |
+| Scheduling authority | Any active Administrator can manage every period and complete its scheduling and amendment workflow. No coordinator assignment, scheduling-lead permission or second-administrator approval is required. Changes and approvals are audited. |
 | Change requests | Administrators and course lecturers can submit review requests for published managed exams. Requests record a proposal and decision only; they never alter the timetable. |
-| Published amendments | A coordinator can propose an eligible future exam move; a different scheduling lead must approve it before the coordinator applies it. Current placements, allocations, capacity, conflicts and duties are revalidated. |
+| Published amendments | An Administrator proposes and explicitly approves or rejects an eligible future exam move, then separately applies an approved amendment. Current placements, allocations, capacity, conflicts and duties are revalidated. |
 | Notifications | Applied amendments create in-application inbox messages for affected students and staff. No SMTP or external email is sent; delivery can be retried without reapplying the amendment. |
 | Attendance | Preserves QR token verification and verification-method support. Requires current course registration, a published exam, the specific exam allocation and the exact assigned venue. Wrong-venue check-in is now rejected instead of creating a `WRONG_VENUE` attendance row. Historic wrong-venue records remain readable. No override endpoint was added. |
 
@@ -105,12 +107,10 @@ rows visible for correction.
 - Regeneration replaces only a period's unpublished generated draft. Cancel its
   assignments first. Attendance, incidents, reports and started sessions block
   replacement. Failure leaves the previous draft and revision intact.
-- A period coordinator is an active administrator. Creation assigns the creator as
-  coordinator; reassigning one requires an explicit scheduling-lead permission and
-  the current period revision. Lead permission is provisioned separately; it is
-  never inferred from the administrator role.
-- Only the assigned coordinator may edit a period or propose/apply its published
-  amendment. A different active lead administrator must review an amendment.
+- Any active Administrator may edit any draft period, review requests, propose and
+  apply amendments, view audit history, and retry failed notification delivery. No
+  coordinator assignment, scheduling-lead permission or different administrator
+  approval is required.
   Routine amendments are limited to future, scheduled exams with no attendance,
   incident or generated-report records. Started/completed exams need a separately
   defined exceptional process.
@@ -153,7 +153,6 @@ timezone; do not reinterpret local exam times as UTC.
 | `POST /{id}/reset-draft` | Body: `{"revision":2}`. Explicitly clears replaceable generated sessions/allocations; preserves period and course selection. |
 | `POST /{id}/auto-assign-invigilators` | Generates draft staffing for this period, reusing existing conflict/workload logic. Returns per-exam results and `understaffedVenueIds`; may report shortages. |
 | `POST /{id}/invigilators` | Body: `{"examSessionId":12,"venueId":3,"staffId":7}`. Create one draft duty; no curriculum selection object is needed here. |
-| `PUT /{id}/coordinator` | Body: `{"revision":2,"staffId":7}`. Assign an active administrator as coordinator; requires explicit scheduling-lead permission. |
 | `GET /{id}/history` | Scheduling audit records for the period, including actor, entity, action and before/after values where available. |
 | `GET /{id}/validation` | `data: {"valid":false,"problems":["..."]}`. Shows publication blockers, including missing staffing. |
 | `POST /{id}/publish` | Body: `{"revision":2}`. Revalidates and publishes period, exams and staffing together. |
@@ -168,32 +167,31 @@ timezone; do not reinterpret local exam times as UTC.
 The change-request API is rooted at `/api/examination-change-requests`.
 Administrators and lecturers may submit requests; an active lecturer must own the
 course and can access only their own requests for published exams. An administrator
-can see all period requests. A decision requires the assigned period coordinator.
-These requests are a review record only and do not change exam arrangements.
+can see and decide all period requests. These requests are a review record only and
+do not change exam arrangements.
 
 | Method and path | Purpose / body |
 | --- | --- |
 | `POST /api/examination-change-requests` | Submit `{ "periodId": 4, "courseCode": "DEMO101", "examSessionId": 12, "proposedChange": "...", "reason": "..." }`. `examSessionId` may be `null`; when supplied it must belong to the selected period and course. |
 | `GET /api/examination-change-requests?periodId=4` | List requests visible to the caller. JDBC request fields are snake_case. |
-| `POST /api/examination-change-requests/{requestId}/decision` | Coordinator records `{ "status": "APPROVED", "decision": "..." }` or `REJECTED`. This does not apply a timetable change. |
+| `POST /api/examination-change-requests/{requestId}/decision` | Administrator records `{ "status": "APPROVED", "decision": "..." }` or `REJECTED`. This does not apply a timetable change. |
 | `GET /api/examination-change-requests/capacity-lecturers?periodId=4&courseCode=DEMO101` | Administrator-only list of assigned lecturers (`staff_id`, `full_name`, `email`) for preparing a capacity enquiry. |
 | `POST /api/examination-change-requests/capacity-draft` | Administrator-only body: `{ "periodId": 4, "courseCode": "DEMO101", "venueId": 3, "lecturerStaffId": 7 }`. Returns a copyable `{ "to", "subject", "body", "deliveryStatus": "DRAFT_ONLY", "sendAvailable": false }`; no email is sent and no capacity is changed. |
 
 Published timetable amendments are rooted at
 `/api/admin/examination-periods/{period}/amendments`. All routes require the
-administrator authority; coordinator/lead checks are additionally enforced by the
-service. Proposals require a published, future `SCHEDULED` exam, the current period
+administrator authority. Proposals require a published, future `SCHEDULED` exam, the current period
 revision, and no attendance, incident or generated-report records. The proposed
 date/time must fit an allowed slot and pass full timetable validation.
 
 | Method and path | Purpose / body |
 | --- | --- |
 | `GET /api/admin/examination-periods/{period}/amendments` | List the period's proposals, including their venue, allocation and duty scope. |
-| `POST /api/admin/examination-periods/{period}/amendments` | Coordinator proposes `{ "examSessionId": 12, "revision": 3, "examDate": "2030-01-08", "startTime": "11:00", "reason": "...", "venueIds": [3,4], "duties": [{"venueId":3,"staffId":7},{"venueId":4,"staffId":8}] }`. `venueIds` and `duties` are optional when retaining the existing sets. Each duty uses `venueId` and `staffId`. |
-| `POST /api/admin/examination-periods/{period}/amendments/{id}/decision` | A different scheduling lead administrator records `{ "status": "APPROVED", "reason": "..." }` or `REJECTED`. A proposer cannot approve their own proposal. Approval rechecks the current revision and scope. |
-| `POST /api/admin/examination-periods/{period}/amendments/{id}/apply` | Assigned coordinator applies an approved proposal. Revalidates again; if relevant data changed, it fails without applying and the proposal must be reviewed against current data. Apply increments period revision and creates the audit snapshots and inbox notifications. |
+| `POST /api/admin/examination-periods/{period}/amendments` | Administrator proposes `{ "examSessionId": 12, "revision": 3, "examDate": "2030-01-08", "startTime": "11:00", "reason": "...", "venueIds": [3,4], "duties": [{"venueId":3,"staffId":7},{"venueId":4,"staffId":8}] }`. `venueIds` and `duties` are optional when retaining the existing sets. Each duty uses `venueId` and `staffId`. |
+| `POST /api/admin/examination-periods/{period}/amendments/{id}/decision` | Administrator records `{ "status": "APPROVED", "reason": "..." }` or `REJECTED`, including the proposal's author. Approval rechecks the current revision and scope; it does not change the timetable. |
+| `POST /api/admin/examination-periods/{period}/amendments/{id}/apply` | Administrator separately applies an approved proposal. Revalidates again; if relevant data changed, it fails without applying and the proposal must be reviewed against current data. Apply increments period revision and creates the audit snapshots and inbox notifications. |
 | `GET /api/admin/examination-periods/{period}/amendments/{id}/notifications` | Inspect notification rows and delivery state. |
-| `POST /api/admin/examination-periods/{period}/amendments/{id}/retry-notifications` | Coordinator retries delivery for an applied amendment only; it does not apply the amendment again. |
+| `POST /api/admin/examination-periods/{period}/amendments/{id}/retry-notifications` | Administrator retries delivery for an applied amendment only; it does not apply the amendment again. |
 
 `GET /api/examination-notifications` returns the authenticated student's or staff
 member's available inbox messages. `POST /api/examination-notifications/{id}/read`
@@ -202,12 +200,13 @@ for the affected students, current invigilators, prior invigilators, and course
 lecturers. Delivery status is `PENDING`, `AVAILABLE` or `FAILED`; retry only
 re-attempts inbox delivery. It never sends external email.
 
-The period response includes `coordinator_staff_id`; the coordinator assignment,
-change-request, amendment and notification endpoints return their normal
+Legacy databases may retain `coordinator_staff_id` and scheduling-lead records for
+history, but they do not affect authorization. The period response and change-request,
+amendment and notification endpoints return their normal
 `{"success":true,"message":"...","data":...}` envelope. JDBC-backed request,
 amendment, audit and notification records use snake_case fields unless otherwise
-noted above. Coordinator reassignment increments the period revision; request
-submission/decision does not. Amendment revision increments when the approved
+noted above. Request submission/decision does not increment the period revision.
+Amendment revision increments when the approved
 amendment is applied, not when it is proposed or reviewed.
 
 Example setup (Monday–Friday, change these dates for the intended cycle):
@@ -349,7 +348,10 @@ has not been migrated or seeded. `.env` was not changed.
   and in a transaction per migration: `V33__scheduling_coordination.sql`,
   `V34__scheduling_change_requests.sql`, `V35__published_time_amendments.sql`,
   `V36__scheduling_integrity_hardening.sql`, then
-  `V37__approved_placement_amendments.sql`. Each depends on the preceding schema;
+  `V37__approved_placement_amendments.sql` and
+  `V38__administrator_owned_scheduling.sql`. V38 makes Administrator the sole
+  scheduling authority while retaining legacy coordinator/lead rows as inert
+  history. Each depends on the preceding schema;
   do not skip or reorder them. Back up and test the complete sequence on a copy first.
 4. Query `SELECT * FROM public.exam_allocation_audit;` or the audit API. The new
    exam/venue foreign key is `NOT VALID` for historical rows: new writes are checked

@@ -1,9 +1,10 @@
 # Examination Scheduling: Dashboard Integration Map
 
-This companion guide separates the frontend impact by dashboard. It describes which
-existing screens consume scheduling data, what should remain read-only, and where to
-send each user for the full workflow. The backend/API contract and amendment request
-schemas are in the [examination scheduling frontend guide](examination-scheduling-frontend-guide.md).
+This companion guide is a quick overview of which existing screens consume scheduling
+data and what should remain read-only. For final API-by-API implementation contracts,
+use the [dashboard-specific integration guides](dashboard-integration/README.md).
+The broader backend/API contract and amendment request schemas remain in the
+[examination scheduling frontend guide](examination-scheduling-frontend-guide.md).
 No frontend implementation is included here.
 
 ## Dashboard Map
@@ -15,6 +16,12 @@ No frontend implementation is included here.
 | Student | `/api/student/examinations`; `/api/student/examination-pass` | Show only the signed-in student's published, eligible examinations and pass details. |
 | Invigilator | `/api/dashboard/invigilator`; `/api/invigilator/assignments`; `/api/invigilator/assignments/{exam}/{venue}/students` | Show published duties and only the roster for the signed-in invigilator's assigned venue. |
 | Shared staff inbox | `/api/examination-notifications` | Show available timetable amendment notices for the signed-in staff member; reading a notice is account-scoped. |
+
+Detailed integration guides: [Administrator](dashboard-integration/administrator-exam-management.md),
+[Lecturer](dashboard-integration/lecturer-dashboard.md),
+[Student](dashboard-integration/student-dashboard.md),
+[Invigilator](dashboard-integration/invigilator-dashboard.md), and the
+[shared examination inbox](dashboard-integration/shared-examination-inbox.md).
 
 All API requests use the existing bearer token and response envelope unless an endpoint
 downloads a PDF. Requests use camelCase; JDBC-backed scheduling records use snake_case.
@@ -39,22 +46,22 @@ existing overview is calculated using `venue.capacity` (classroom capacity), not
 ### Exam Management
 
 Use `/api/admin/examination-periods` for period lifecycle and timetable operations.
-Show the period's coordinator, revision and publication status with the timetable.
+Show the period's revision and publication status with the timetable.
 Drafts are administrator-only and generation never publishes. Block publish while
 validation reports problems; refresh period detail after staffing/capacity changes.
 Published placement and staffing remain read-only in ordinary editing flows.
 
-The administrator workflow also includes:
+The same Administrator can complete the entire workflow:
 
-- Coordinator assignment by a scheduling lead to an active administrator. An
-  administrator is not automatically a scheduling lead.
+- Period setup, course selection, scheduling settings, draft generation and review.
 - Manual or automatic draft staffing, review of shortages, and atomic period publish.
 - Lecturer change-request review. Recording `APPROVED` or `REJECTED` does not apply
   a timetable change.
-- A separate published-amendment process: the assigned coordinator proposes and
-  applies; a different lead administrator reviews. Apply is only available after
-  fresh validation and increments the period revision.
+- A separate published-amendment process: the Administrator proposes, explicitly
+  approves or rejects, and applies. Approval does not change the timetable; apply is
+  only available after fresh validation and increments the period revision.
 - An audit history view for period changes and amendment before/after arrangements.
+- Notification delivery review and retries that never reapply timetable changes.
 
 See the main guide for endpoint payloads, approval rules, failure states and migration
 requirements. Do not offer unpublish or direct post-publication placement controls.
@@ -141,15 +148,14 @@ that account's notification as read. A published amendment can notify affected
 students, current and previous invigilators, and course lecturers.
 
 This is an in-application inbox only. It is not email or push delivery. Administrators
-can inspect amendment notification states and the assigned coordinator can retry
-inbox delivery without applying the amendment again. A retry must not duplicate or
-reapply timetable changes.
+can inspect amendment notification states and retry inbox delivery without applying
+the amendment again. A retry must not duplicate or reapply timetable changes.
 
 ## Frontend Acceptance Checks
 
 - Administrator: drafts are visibly distinct from published periods; venue fills use
-  examination capacity; publication blockers, shortages, coordinator and revision
-  are visible; published arrangements cannot be edited outside amendment review.
+  examination capacity; publication blockers, shortages and revision are visible;
+  published arrangements cannot be edited outside amendment review.
 - Lecturer: only assigned-course published exams appear; counts show registered,
   allocated, unallocated and attended values; stale allocation records are surfaced;
   change requests leave placements unchanged.

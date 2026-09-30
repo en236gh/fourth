@@ -7,8 +7,6 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/admin/examination-periods")
@@ -48,8 +46,6 @@ public class SchedulingController {
     public ApiResponse<?> autoAssign(@PathVariable int id) { return ApiResponse.success("Draft staffing generated; review shortages",assignments.autoAssignPeriod(id,staff.requireCurrentStaff())); }
     @PostMapping("/{id}/invigilators")
     public ApiResponse<?> assign(@PathVariable int id,@Valid @RequestBody SchedulingRequests.Assignment request) { return ApiResponse.success("Draft assignment created",assignments.createForPeriod(id,request,staff.requireCurrentStaff())); }
-    @PutMapping("/{id}/coordinator")
-    public ApiResponse<?> coordinator(@PathVariable int id,@Valid @RequestBody SchedulingRequests.Coordinator request) { return ApiResponse.success("Coordinator assigned",service.coordinator(id,request)); }
     @GetMapping("/{id}/history")
     public ApiResponse<?> history(@PathVariable int id) { return ApiResponse.success("Timetable audit history",service.history(id)); }
     @GetMapping("/{id}/exams/{session}/alternatives")
