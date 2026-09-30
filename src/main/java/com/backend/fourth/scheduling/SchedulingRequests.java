@@ -9,7 +9,8 @@ public final class SchedulingRequests {
     private SchedulingRequests() {}
     public record DailySlot(@NotNull LocalTime startTime, @NotNull LocalTime endTime) {}
     public record Period(@NotBlank @Size(max=120) String name,
-                         @NotBlank @Pattern(regexp="\\d{4}/\\d{4}") String academicYear,
+                         // Legacy input is optional and ignored; the backend owns the academic year.
+                         String academicYear,
                          @NotNull @Min(1) @Max(2) Integer semester,
                          @NotBlank @Pattern(regexp="FINAL|SUPPLEMENTARY|SPECIAL") String examType,
                          @NotNull LocalDate startDate, @NotNull LocalDate endDate,

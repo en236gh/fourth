@@ -46,10 +46,11 @@ class SchedulingHttpFlowTest {
         String year=jdbc.queryForObject("SELECT academic_year FROM exam_session WHERE course_code='DEMOEXT'",String.class);
         String root="/api/admin/examination-periods";
         var created=request("POST",root,"""
-                {"name":"HTTP demonstration","academicYear":"%s","semester":1,"examType":"FINAL",
+                {"name":"HTTP demonstration","semester":1,"examType":"FINAL",
                 "startDate":"%s","endDate":"%s","daysOfWeek":[1,2,3,4,5],
                 "slots":[{"startTime":"09:00","endTime":"11:00"},{"startTime":"11:00","endTime":"13:00"}]}
-                """.formatted(year,start,start.plusDays(4)),admin,200);
+                """.formatted(start,start.plusDays(4)),admin,200);
+        assertEquals(year,created.path("data").path("academic_year").asText());
         int id=created.path("data").path("period_id").asInt();assertTrue(id>0);
         String period=root+"/"+id;
         request("PUT",period+"/courses","""

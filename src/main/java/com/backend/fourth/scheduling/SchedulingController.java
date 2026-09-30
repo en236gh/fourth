@@ -19,6 +19,8 @@ public class SchedulingController {
 
     @GetMapping
     public ApiResponse<?> list() { return ApiResponse.success("Examination periods",service.list()); }
+    @GetMapping("/defaults")
+    public ApiResponse<?> defaults() { return ApiResponse.success("Scheduling defaults",service.defaults()); }
     @PostMapping
     public ApiResponse<?> create(@Valid @RequestBody SchedulingRequests.Period request) { return ApiResponse.success("Draft period created",service.create(request)); }
     @PutMapping("/{id}")

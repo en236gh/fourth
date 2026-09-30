@@ -1,5 +1,7 @@
 # Examination scheduling: backend changes and frontend integration
 
+> Scheduling update: see [automatic academic year and required seats](scheduling-automatic-defaults-integration.md). Omit academicYear from period setup; display registration counts as required seats.
+
 This change implements the backend workflow only. No frontend files were changed.
 Administrators can create one examination period per academic year/semester/exam
 type, select courses, generate a draft with exam-specific student allocations,
@@ -214,7 +216,6 @@ Example setup (Monday–Friday, change these dates for the intended cycle):
 ```json
 {
   "name": "Final examinations",
-  "academicYear": "2030/2031",
   "semester": 1,
   "examType": "FINAL",
   "startDate": "2030-01-07",
@@ -409,7 +410,7 @@ only missing demo rows. It creates no managed period automatically.
 | Insufficient capacity | Add `DEMO999` (20 students) when only the two demo rooms have configured examination capacities. More slots cannot solve a per-exam seating shortfall of 20 versus 6. |
 | Invigilator conflict | Invigilator 1 already supervises `DEMOEXT`. Attempt to assign them to a simultaneous exam in Room 2: the request is rejected. Automatic staffing selects available staff. |
 
-Create a Monday–Friday period using the seed's printed dates and academic year;
+Create a Monday–Friday period using the seed's printed dates; the academic year comes from the latest student registrations;
 choose daily slots 09:00–11:00 and 11:00–13:00. Select `DEMO101`, `DEMO102`,
 `DEMO201`, `DEMO301`, each for 120 minutes; generate, review, auto-assign, validate,
 then publish. Demo identities have no new login passwords and no fabricated face

@@ -29,6 +29,7 @@ class SchedulingAuthorizationTest {
             for(String role:List.of("STUDENT","LECTURER","INVIGILATOR")) {
                 SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken("user","",List.of(new SimpleGrantedAuthority(role))));
                 assertThrows(AccessDeniedException.class,controller::list);
+                assertThrows(AccessDeniedException.class,controller::defaults);
                 assertThrows(AccessDeniedException.class,()->controller.publish(1,new SchedulingRequests.Revision(0)));
                 assertThrows(AccessDeniedException.class,controller::audit);
             }

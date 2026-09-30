@@ -36,18 +36,30 @@ public class SchedulingService {
             """);
     }
 
+    public Map<String,Object> defaults() {
+        return Map.of("academicYear", currentAcademicYear());
+    }
+
+    private String currentAcademicYear() {
+        String year = jdbc.queryForObject("SELECT max(academic_year) FROM student_registration", String.class);
+        if (year == null || !year.matches("[0-9]{4}/[0-9]{4}"))
+            throw new IllegalStateException("No valid academic year is available in student registrations. Load registrations before creating an examination period.");
+        return year;
+    }
+
     @Transactional
     public Map<String,Object> create(SchedulingRequests.Period request) {
         writeLock.acquire();
         access.administrator();
         List<SchedulingRequests.DailySlot> slots=validateSetup(request);
+        String academicYear=currentAcademicYear();
         if (Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM examination_period WHERE academic_year=? AND semester=? AND exam_type=?)",
-                Boolean.class, request.academicYear(),request.semester(),request.examType())))
+                Boolean.class, academicYear,request.semester(),request.examType())))
             throw new IllegalStateException("An examination period already exists for this academic year, semester and exam type.");
         Integer id = jdbc.queryForObject("""
                 INSERT INTO examination_period(name,academic_year,semester,exam_type,start_date,end_date,timezone)
                 VALUES (?,?,?,?,?,?,?) RETURNING period_id
-                """, Integer.class,request.name().trim(),request.academicYear(),request.semester(),request.examType(),request.startDate(),request.endDate(),timezone);
+                """, Integer.class,request.name().trim(),academicYear,request.semester(),request.examType(),request.startDate(),request.endDate(),timezone);
         for (int day : request.daysOfWeek()) for (var slot : slots)
             jdbc.update("INSERT INTO examination_period_slot VALUES (?,?,?,?)",id,day,slot.startTime(),slot.endTime());
         return detail(id);
@@ -73,13 +85,14 @@ public class SchedulingService {
 
     @Transactional
     public Map<String,Object> update(int id,long revision,SchedulingRequests.Period request) {
-        editable(id,revision);
+        Map<String,Object> existing=editable(id,revision);
+        String academicYear=(String)existing.get("academic_year");
         if (!sessions(id).isEmpty()) throw new IllegalStateException("Reset the draft before changing the examination window.");
         var slots=validateSetup(request);
         if (Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM examination_period WHERE period_id<>? AND academic_year=? AND semester=? AND exam_type=?)",
-                Boolean.class,id,request.academicYear(),request.semester(),request.examType()))) throw new IllegalStateException("This examination cycle already has a period.");
+                Boolean.class,id,academicYear,request.semester(),request.examType()))) throw new IllegalStateException("This examination cycle already has a period.");
         jdbc.update("UPDATE examination_period SET name=?,academic_year=?,semester=?,exam_type=?,start_date=?,end_date=?,revision=revision+1 WHERE period_id=?",
-                request.name().trim(),request.academicYear(),request.semester(),request.examType(),request.startDate(),request.endDate(),id);
+                request.name().trim(),academicYear,request.semester(),request.examType(),request.startDate(),request.endDate(),id);
         jdbc.update("DELETE FROM examination_period_slot WHERE period_id=?",id);
         for (int day:request.daysOfWeek()) for(var slot:slots) jdbc.update("INSERT INTO examination_period_slot VALUES (?,?,?,?)",id,day,slot.startTime(),slot.endTime());
         return detail(id);
