@@ -53,9 +53,6 @@ public class SchedulingService {
         access.administrator();
         List<SchedulingRequests.DailySlot> slots=validateSetup(request);
         String academicYear=currentAcademicYear();
-        if (Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM examination_period WHERE academic_year=? AND semester=? AND exam_type=?)",
-                Boolean.class, academicYear,request.semester(),request.examType())))
-            throw new IllegalStateException("An examination period already exists for this academic year, semester and exam type.");
         Integer id = jdbc.queryForObject("""
                 INSERT INTO examination_period(name,academic_year,semester,exam_type,start_date,end_date,timezone)
                 VALUES (?,?,?,?,?,?,?) RETURNING period_id
@@ -89,8 +86,6 @@ public class SchedulingService {
         String academicYear=(String)existing.get("academic_year");
         if (!sessions(id).isEmpty()) throw new IllegalStateException("Reset the draft before changing the examination window.");
         var slots=validateSetup(request);
-        if (Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM examination_period WHERE period_id<>? AND academic_year=? AND semester=? AND exam_type=?)",
-                Boolean.class,id,academicYear,request.semester(),request.examType()))) throw new IllegalStateException("This examination cycle already has a period.");
         jdbc.update("UPDATE examination_period SET name=?,academic_year=?,semester=?,exam_type=?,start_date=?,end_date=?,revision=revision+1 WHERE period_id=?",
                 request.name().trim(),academicYear,request.semester(),request.examType(),request.startDate(),request.endDate(),id);
         jdbc.update("DELETE FROM examination_period_slot WHERE period_id=?",id);
@@ -181,12 +176,27 @@ public class SchedulingService {
     }
 
     @Transactional
+    public void deleteDraftPeriod(int id,long revision) {
+        writeLock.acquire();
+        access.administrator();
+        Map<String,Object> p=period(id);
+        if (!"DRAFT".equals(p.get("status"))) throw new IllegalStateException("Published periods cannot be deleted.");
+        if (((Number)p.get("revision")).longValue()!=revision) throw new IllegalStateException("Draft changed since it was loaded. Refresh before deleting.");
+        requireDeletable(id);
+        jdbc.update("DELETE FROM invigilator_assignment WHERE exam_session_id IN(SELECT exam_session_id FROM exam_session WHERE period_id=?)",id);
+        deleteDraft(id);
+        jdbc.update("DELETE FROM examination_period WHERE period_id=?",id);
+    }
+
+    @Transactional
     public Generation generate(int id, SchedulingRequests.Generate request) {
         Map<String,Object> p=editable(id,request.revision()); requireReplaceable(id);
         List<Exam> exams=exams(p);
         List<String> duplicates=jdbc.queryForList("""
-                SELECT DISTINCT e.course_code FROM exam_session e JOIN examination_period_course pc ON pc.course_code=e.course_code AND pc.period_id=?
-                WHERE e.period_id IS DISTINCT FROM ? AND e.academic_year=? AND e.semester=? AND e.exam_type=? ORDER BY e.course_code
+            SELECT DISTINCT e.course_code FROM exam_session e JOIN examination_period_course pc ON pc.course_code=e.course_code AND pc.period_id=?
+            LEFT JOIN examination_period other ON other.period_id=e.period_id
+            WHERE e.period_id IS DISTINCT FROM ? AND e.academic_year=? AND e.semester=? AND e.exam_type=?
+            AND (e.period_id IS NULL OR other.status='PUBLISHED') ORDER BY e.course_code
                 """,String.class,id,id,p.get("academic_year"),p.get("semester"),p.get("exam_type"));
         if (!duplicates.isEmpty()) return new Generation(new Result(Outcome.INVALID_INPUT,List.of(),duplicates,0,
                 List.of("Existing sessions already belong to this course/cycle. Review legacy sessions before generating; ownership is never guessed.")),detail(id));
@@ -346,6 +356,19 @@ public class SchedulingService {
                 OR EXISTS(SELECT 1 FROM generated_report a WHERE a.exam_session_id=e.exam_session_id)))
                 """,Boolean.class,id,timezone))) throw new IllegalStateException("Draft has staffing or operational records. Cancel assignments before regenerating; operational records are never discarded.");
     }
+    private void requireDeletable(int id) {
+        if (Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM exam_session e WHERE e.period_id=? AND (
+                    e.status<>'SCHEDULED' OR e.schedule_published
+                    OR EXISTS(SELECT 1 FROM attendance a WHERE a.exam_session_id=e.exam_session_id)
+                    OR EXISTS(SELECT 1 FROM incident i WHERE i.exam_session_id=e.exam_session_id)
+                    OR EXISTS(SELECT 1 FROM generated_report r WHERE r.exam_session_id=e.exam_session_id)
+                    OR EXISTS(SELECT 1 FROM invigilator_assignment a WHERE a.exam_session_id=e.exam_session_id AND a.assignment_status='PUBLISHED')
+                )) OR EXISTS(SELECT 1 FROM examination_change_request WHERE period_id=?)
+                OR EXISTS(SELECT 1 FROM examination_amendment WHERE period_id=?)
+                """,Boolean.class,id,id,id)))
+            throw new IllegalStateException("Draft has published staffing, operational activity, or review history; it was not deleted.");
+    }
     private void deleteDraft(int id) {
         jdbc.update("DELETE FROM student_venue_allocation WHERE exam_session_id IN(SELECT exam_session_id FROM exam_session WHERE period_id=?)",id);
         jdbc.update("DELETE FROM exam_session_programme_course WHERE exam_session_id IN(SELECT exam_session_id FROM exam_session WHERE period_id=?)",id);
@@ -405,6 +428,15 @@ public class SchedulingService {
         List<String> problems=new ArrayList<>();
         List<Exam> exams=exams(p);
         if (exams.isEmpty()) problems.add("Select at least one course.");
+        problems.addAll(jdbc.queryForList("""
+            SELECT DISTINCT 'Course '||e.course_code||': another legacy or published examination already occupies this cycle.'
+            FROM exam_session e
+            JOIN examination_period_course selected ON selected.period_id=? AND selected.course_code=e.course_code
+            LEFT JOIN examination_period other ON other.period_id=e.period_id
+            WHERE e.period_id IS DISTINCT FROM ? AND e.academic_year=? AND e.semester=? AND e.exam_type=?
+            AND (e.period_id IS NULL OR other.status='PUBLISHED')
+            ORDER BY 1
+            """,String.class,id,id,p.get("academic_year"),p.get("semester"),p.get("exam_type")));
         for (Exam e:exams) if (e.students().isEmpty()) problems.add(e.course()+": no eligible registrations.");
         problems.addAll(new ConstraintScheduler(slots(p),rooms(),reservations(id),1).validate(exams,placements(id)));
         for (var e:sessions(id)) {

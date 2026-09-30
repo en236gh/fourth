@@ -23,6 +23,8 @@ public class SchedulingController {
     public ApiResponse<?> defaults() { return ApiResponse.success("Scheduling defaults",service.defaults()); }
     @PostMapping
     public ApiResponse<?> create(@Valid @RequestBody SchedulingRequests.Period request) { return ApiResponse.success("Draft period created",service.create(request)); }
+    @DeleteMapping("/{id}")
+    public ApiResponse<?> deleteDraft(@PathVariable int id,@RequestParam long revision) { service.deleteDraftPeriod(id,revision); return ApiResponse.success("Draft period deleted",null); }
     @PutMapping("/{id}")
     public ApiResponse<?> update(@PathVariable int id,@RequestParam long revision,@Valid @RequestBody SchedulingRequests.Period request) { return ApiResponse.success("Period setup updated",service.update(id,revision,request)); }
     @GetMapping("/{id}")

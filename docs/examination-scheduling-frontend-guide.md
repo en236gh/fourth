@@ -145,7 +145,8 @@ timezone; do not reinterpret local exam times as UTC.
 | Method and path | Purpose / body |
 | --- | --- |
 | `GET /` | List periods with `period_id`, cycle fields, dates, `timezone`, `status`, `revision`, `published_at`. |
-| `POST /` | Create a period; setup body below. Returns full detail, revision 0. |
+| `POST /` | Create a period; setup body below. Returns full detail, revision 0. Multiple drafts may share the same academic year, semester and exam type. |
+| `DELETE /{id}?revision=0` | Delete one unpublished draft period and its draft schedule. Requires the latest revision; published periods and periods with operational or review history are retained. |
 | `GET /{id}` | Full review detail, including slots, courses, exams, bookings, allocations, unallocated students and assignments. |
 | `PUT /{id}?revision=0` | Replace period setup before generation, using the same setup body. Reset an existing draft first. |
 | `GET /{id}/courses?schoolId=1` | Active courses and matching `eligible_students`. School filter is optional. |
@@ -163,6 +164,11 @@ timezone; do not reinterpret local exam times as UTC.
 | `GET /venue-unavailability` | List recorded unavailable intervals. |
 | `POST /venues/{venue}/unavailability` | Body: `startsAt`, `endsAt`, `reason`. Rejects overlap with an existing exam booking. |
 | `GET /allocation-audit` | Historical rows needing correction: `computer_number`, `exam_session_id`, `venue_id`, `course_code`, `issue`. |
+
+Drafts can share a cycle, but generation still rejects a course already represented
+by a legacy exam or an exam in a published period. Other draft periods do not
+reserve the cycle; their existing exam times and venue bookings are still considered
+when checking a proposed placement.
 
 ### Staff requests and post-publication amendments
 

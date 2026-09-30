@@ -44,6 +44,7 @@ class SchedulingPostgresTest {
         executeResource("/db/migration/V36__scheduling_integrity_hardening.sql");
         executeResource("/db/migration/V37__approved_placement_amendments.sql");
         executeResource("/db/migration/V38__administrator_owned_scheduling.sql");
+        executeResource("/db/migration/V39__allow_multiple_draft_periods.sql");
         jdbc.update("INSERT INTO course VALUES ('A','One student',true),('B','Other students',true),('C','Shared student',true),('D','Large course',true)");
         jdbc.update("INSERT INTO student VALUES ('1','One'),('2','Two'),('3','Three'),('4','Four')");
         jdbc.update("INSERT INTO student_registration VALUES ('1','A','2090/2091',1),('2','B','2090/2091',1),('1','C','2090/2091',1),('1','D','2090/2091',1),('2','D','2090/2091',1),('3','D','2090/2091',1)");
@@ -105,6 +106,34 @@ class SchedulingPostgresTest {
         assertEquals(1,jdbc.queryForObject("SELECT count(*) FROM student_venue_allocation WHERE computer_number='legacy'",Integer.class));
         assertNull(jdbc.queryForObject("SELECT examination_capacity FROM venue WHERE venue_id=99",Integer.class));
         assertTrue(jdbc.queryForObject("SELECT schedule_published FROM exam_session WHERE exam_session_id=1",Boolean.class));
+    }
+    @Test void multipleDraftPeriodsCanShareCycleAndDeletingOneLeavesTheOtherIntact() {
+        int first=create("A");
+        int second=create("B");
+        generate(first,1);generate(second,1);
+        assertEquals(2,jdbc.queryForObject("SELECT count(*) FROM examination_period WHERE academic_year='2090/2091' AND semester=1 AND exam_type='FINAL'",Integer.class));
+        assertEquals(2,jdbc.queryForObject("SELECT count(*) FROM exam_session WHERE period_id IN (?,?)",Integer.class,first,second));
+        service.deleteDraftPeriod(first,2);
+        assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM examination_period WHERE period_id=?",Integer.class,first));
+        assertEquals(1,jdbc.queryForObject("SELECT count(*) FROM exam_session WHERE period_id=?",Integer.class,second));
+        int replacement=create("C");
+        assertNotEquals(first,replacement);
+    }
+    @Test void deletingDraftRequiresCurrentRevisionAndRejectsPublishedPeriod() {
+        int id=create("A");
+        assertThrows(IllegalStateException.class,()->service.deleteDraftPeriod(id,0));
+        generate(id,1);staffEveryBooking(id);service.publish(id,2);
+        assertThrows(IllegalStateException.class,()->service.deleteDraftPeriod(id,3));
+        assertEquals(1,jdbc.queryForObject("SELECT count(*) FROM examination_period WHERE period_id=?",Integer.class,id));
+    }
+    @Test void publishedCycleCourseBlocksOtherDraftFromPublishing() {
+        int first=create("A");int second=create("A");
+        generate(first,1);generate(second,1);
+        staffEveryBooking(first);service.publish(first,2);
+        staffEveryBooking(second);
+        assertTrue(service.validate(second).problems().stream().anyMatch(problem->problem.contains("another legacy or published examination")));
+        assertThrows(IllegalStateException.class,()->service.publish(second,2));
+        assertEquals("DRAFT",service.detail(second).get("status"));
     }
     @Test void completeWorkflowGeneratesAllocatesValidatesAndPublishes() {
         int id=create("A","B","C","D");
