@@ -1,8 +1,10 @@
 # Administrator-triggered automatic scheduling
 
-The administrator enters the academic cycle and exam window, then clicks **Generate schedule**. One request discovers exams, schedules times and venues, allocates registered students, and assigns available invigilators. The administrator reviews the result and clicks **Publish** after validation passes.
+The administrator enters the semester, exam type and exam window, then clicks **Generate schedule**. One request discovers exams, schedules times and venues, allocates registered students, and assigns available invigilators. The administrator reviews the result and clicks **Publish** after validation passes.
 
 This repository contains the backend only. The separate administrator dashboard must wire the button to the API below and remove its course-selection, draft-delete, and reset-draft controls. Automation runs only on an administrator request; it is not a background job.
+
+See [automatic academic-year frontend handoff](scheduling-automatic-defaults-integration.md) for the year display, request payloads, errors, and existing-schedule behavior.
 
 ## Generate schedule button
 
@@ -13,7 +15,6 @@ Content-Type: application/json
 
 {
   "name": "Semester 1 final examinations",
-  "academicYear": "2026/2027",
   "semester": 1,
   "examType": "FINAL",
   "startDate": "2027-06-07",
@@ -26,7 +27,7 @@ Content-Type: application/json
 }
 ```
 
-`academicYear` is honored when supplied. If omitted, the latest academic year in `student_registration` is used; `GET /api/admin/examination-periods/defaults` supplies that default. Always display the resolved cycle. One schedule per academic year, semester and exam type can be created through the service. If it already exists, open it using the list/detail APIs and review or regenerate it. Existing same-cycle records from the previous workflow are preserved.
+The academic year always comes from the latest year in `student_registration`; `GET /api/admin/examination-periods/defaults` supplies a preview. Clients omit `academicYear`; legacy supplied values are ignored. There is no manual year selection or inference from exam dates. Future-year registrations must be removed if they do not represent the current registration cycle. Editing an existing period preserves its saved year. Always display the resolved cycle. One schedule per academic year, semester and exam type can be created through the service. If it already exists, open it using the list/detail APIs and review or regenerate it. Existing same-cycle records from the previous workflow are preserved.
 
 The response uses the existing API envelope, with this new `data` structure:
 

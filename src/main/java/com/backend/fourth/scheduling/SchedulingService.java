@@ -54,9 +54,7 @@ public class SchedulingService {
         writeLock.acquire();
         access.administrator();
         List<SchedulingRequests.DailySlot> slots=validateSetup(request);
-        String academicYear=request.academicYear()==null || request.academicYear().isBlank()
-                ? currentAcademicYear() : request.academicYear();
-        if (!academicYear.matches("[0-9]{4}/[0-9]{4}")) throw new IllegalArgumentException("Academic year must use YYYY/YYYY.");
+        String academicYear=currentAcademicYear();
         if (Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM examination_period WHERE academic_year=? AND semester=? AND exam_type=?)",
                 Boolean.class,academicYear,request.semester(),request.examType())))
             throw new IllegalStateException("A schedule already exists for this academic cycle. Open it to review or regenerate.");

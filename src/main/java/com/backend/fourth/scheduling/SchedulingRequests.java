@@ -9,8 +9,8 @@ public final class SchedulingRequests {
     private SchedulingRequests() {}
     public record DailySlot(@NotNull LocalTime startTime, @NotNull LocalTime endTime) {}
     public record Period(@NotBlank @Size(max=120) String name,
-                         // Omit to use the latest registration year; explicit cycles are honored.
-                         @Pattern(regexp="[0-9]{4}/[0-9]{4}") String academicYear,
+                         // Legacy client field; ignored. Registrations determine the year on creation.
+                         String academicYear,
                          @NotNull @Min(1) @Max(2) Integer semester,
                          @NotBlank @Pattern(regexp="FINAL|SUPPLEMENTARY|SPECIAL") String examType,
                          @NotNull LocalDate startDate, @NotNull LocalDate endDate,
