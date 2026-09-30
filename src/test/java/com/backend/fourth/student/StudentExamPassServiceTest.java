@@ -88,6 +88,17 @@ class StudentExamPassServiceTest {
         assertEquals("PRESENT", result.get(0).attendanceStatus());
     }
 
+
+    @Test void unpublishedExaminationsAreHiddenFromStudents() {
+        var student=createStudent();var session=createSession();session.setSchedulePublished(false);
+        when(studentRegistrationRepository.findByComputerNumber(student.getComputerNumber())).thenReturn(List.of(createRegistration()));
+        when(studentProgrammeEnrolmentRepository.findActiveForAcademicYear(student.getComputerNumber(),"2026/2027"))
+                .thenReturn(Optional.of(new StudentProgrammeEnrolmentRepository.ProgrammeEnrolment(1,"SNS-BCS","Computer Science",1,"ACTIVE")));
+        when(examSessionRepository.findByCourseCodeAndAcademicYearAndSemester("CSC1101","2026/2027",1)).thenReturn(List.of(session));
+        assertEquals(List.of(),studentExamPassService.listMyExaminations(student));
+        org.mockito.Mockito.verifyNoInteractions(allocationRepository,venueRepository);
+    }
+
     private Student createStudent() {
         Student student = new Student();
         student.setComputerNumber("2022004264");

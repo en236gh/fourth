@@ -85,6 +85,7 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public byte[] generateLecturerReport(ExamSession examSession, Staff lecturer) {
+        if (!examSession.isSchedulePublished()) throw new AccessDeniedException("Examination timetable is not published");
         if (!courseLecturerRepository.existsByCourseCodeAndStaffId(
                 examSession.getCourseCode(), lecturer.getStaffId())) {
             throw new AccessDeniedException("You are not assigned to this course");

@@ -43,6 +43,7 @@ public class AdminInvigilatorAssignmentService {
     private final StaffRepository staffRepository;
     private final AssignmentAcademicRepository academicRepository;
     private final AssignmentWriteLock assignmentWriteLock;
+    private final com.backend.fourth.scheduling.SchedulingAccess schedulingAccess;
 
     @Transactional(readOnly = true)
     public List<AdminAssignmentResponse> list(Integer examSessionId) {
@@ -56,7 +57,7 @@ public class AdminInvigilatorAssignmentService {
 
     @Transactional(readOnly = true)
     public List<AdminStaffingResponse> staffing(Integer examSessionId) {
-        ExamSession exam = requireAssignableExam(examSessionId);
+        ExamSession exam = examSessionRepository.findById(examSessionId).orElseThrow(() -> new IllegalArgumentException("Exam session not found"));
         List<Staff> activeInvigilators = staffRepository.findAll().stream()
             .filter(this::isActiveInvigilator)
             .toList();
@@ -71,6 +72,10 @@ public class AdminInvigilatorAssignmentService {
     public AdminAssignmentResponse createDraft(CreateInvigilatorAssignmentRequest request, Staff administrator) {
         assignmentWriteLock.acquire();
         requireAcademicSelection(request.examSessionId(), request.selection());
+        return createDraftForExam(request, administrator);
+    }
+
+    private AdminAssignmentResponse createDraftForExam(CreateInvigilatorAssignmentRequest request, Staff administrator) {
         ExamSession exam = requireAssignableExam(request.examSessionId());
         if (!examVenueRepository.existsById(new ExamVenueId(request.examSessionId(), request.venueId()))) {
             throw new IllegalArgumentException("Venue is not linked to this examination");
@@ -109,6 +114,7 @@ public class AdminInvigilatorAssignmentService {
         assignmentWriteLock.acquire();
         LocalDateTime now = LocalDateTime.now();
         List<ExamSession> exams = examSessionRepository.findByStatus("SCHEDULED").stream()
+                .filter(exam -> exam.getPeriodId()==null)
                 .filter(exam -> LocalDateTime.of(exam.getExamDate(), exam.getStartTime()).isAfter(now))
                 .sorted(Comparator.comparing(ExamSession::getExamDate)
                         .thenComparing(ExamSession::getStartTime)
@@ -142,6 +148,7 @@ public class AdminInvigilatorAssignmentService {
     }
 
     private AutoAssignmentResponse generateDrafts(ExamSession exam, Staff administrator) {
+        if (exam.getPeriodId()!=null) schedulingAccess.coordinator(exam.getPeriodId());
         Integer examSessionId = exam.getExamSessionId();
         List<Staff> eligible = staffRepository.findAll().stream()
                 .filter(this::isActiveInvigilator)
@@ -191,10 +198,20 @@ public class AdminInvigilatorAssignmentService {
     @Transactional
     public List<AdminAssignmentResponse> publish(Integer examSessionId) {
         assignmentWriteLock.acquire();
-        requireAssignableExam(examSessionId);
+        ExamSession exam = requireAssignableExam(examSessionId);
+        if (exam.getPeriodId()!=null) throw new IllegalStateException("Publish the examination period to publish its timetable and staffing together");
         List<InvigilatorAssignment> assignments = assignmentRepository.findByExamSessionId(examSessionId);
         if (assignments.isEmpty()) {
             throw new IllegalStateException("No assignments exist for this examination");
+        }
+        for (InvigilatorAssignment assignment : assignments) {
+            if ("CANCELLED".equals(assignment.getAssignmentStatus())) continue;
+            requireActiveInvigilator(assignment.getStaffId());
+            if (hasConflict(assignment.getStaffId(), exam, examSessionId)
+                    || assignments.stream().anyMatch(other -> !"CANCELLED".equals(other.getAssignmentStatus())
+                        && other.getStaffId().equals(assignment.getStaffId()) && !other.getVenueId().equals(assignment.getVenueId()))) {
+                throw new IllegalStateException("Invigilator has overlapping duties");
+            }
         }
         LocalDateTime now = LocalDateTime.now();
         return assignments.stream().filter(a -> "DRAFT".equals(a.getAssignmentStatus())).map(a -> {
@@ -225,6 +242,13 @@ public class AdminInvigilatorAssignmentService {
     private ExamSession requireAssignableExam(Integer id) {
         ExamSession exam = examSessionRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Exam session not found"));
+        if (exam.getPeriodId()!=null) schedulingAccess.coordinator(exam.getPeriodId());
+        if (exam.getPeriodId()!=null && exam.isSchedulePublished()) {
+            throw new IllegalStateException("Published period staffing is locked");
+        }
+        if (exam.getPeriodId()!=null && (!"SCHEDULED".equals(exam.getStatus()) ||
+                !LocalDateTime.of(exam.getExamDate(),exam.getStartTime()).isAfter(LocalDateTime.now())))
+            throw new IllegalStateException("Started managed examinations cannot have their staffing changed");
         if ("COMPLETED".equals(exam.getStatus())) {
             throw new IllegalStateException("Examination has already been completed");
         }
@@ -238,6 +262,30 @@ public class AdminInvigilatorAssignmentService {
             throw new IllegalArgumentException("Staff member is not an active invigilator");
         }
         return staff;
+    }
+
+    @Transactional
+    public List<AutoAssignmentResponse> autoAssignPeriod(int periodId, Staff administrator) {
+        assignmentWriteLock.acquire();
+        List<ExamSession> exams = examSessionRepository.findAll().stream()
+                .filter(e -> java.util.Objects.equals(e.getPeriodId(), periodId))
+                .sorted(Comparator.comparing(ExamSession::getExamDate).thenComparing(ExamSession::getStartTime).thenComparing(ExamSession::getExamSessionId)).toList();
+        if (exams.isEmpty()) throw new IllegalArgumentException("Generate the period timetable first");
+        List<AutoAssignmentResponse> results = new ArrayList<>();
+        for (ExamSession exam : exams) {
+            requireAssignableExam(exam.getExamSessionId());
+            results.add(generateDrafts(exam, administrator));
+            assignmentRepository.flush();
+        }
+        return results;
+    }
+
+    @Transactional
+    public AdminAssignmentResponse createForPeriod(int periodId, com.backend.fourth.scheduling.SchedulingRequests.Assignment request, Staff administrator) {
+        assignmentWriteLock.acquire();
+        ExamSession exam = requireAssignableExam(request.examSessionId());
+        if (!java.util.Objects.equals(exam.getPeriodId(), periodId)) throw new IllegalArgumentException("Exam does not belong to this period");
+        return createDraftForExam(new CreateInvigilatorAssignmentRequest(null, request.examSessionId(), request.venueId(), request.staffId(), "Assigned from period review"), administrator);
     }
 
     private boolean isActiveInvigilator(Staff staff) {
@@ -276,7 +324,8 @@ public class AdminInvigilatorAssignmentService {
                 .findByExamSessionIdAndVenueId(examSessionId, venueId);
         long allocated = allocationRepository.countByVenueIdAndExamSessionId(venueId, examSessionId);
         int required = Math.max(1, (int) Math.ceil(allocated / (double) STUDENTS_PER_INVIGILATOR));
-        long active = assignments.stream().filter(a -> !"CANCELLED".equals(a.getAssignmentStatus())).count();
+        long active = assignments.stream().filter(a -> !"CANCELLED".equals(a.getAssignmentStatus()))
+            .filter(a -> activeInvigilators.stream().anyMatch(s -> s.getStaffId().equals(a.getStaffId()))).count();
         long drafts = assignments.stream().filter(a -> "DRAFT".equals(a.getAssignmentStatus())).count();
         long published = assignments.stream().filter(a -> "PUBLISHED".equals(a.getAssignmentStatus())).count();
         List<AdminStaffMemberResponse> assigned = assignments.stream()

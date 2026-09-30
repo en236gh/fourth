@@ -30,15 +30,27 @@ public class AllocationService {
     private final ExamVenueRepository examVenueRepository;
     private final StudentVenueAllocationRepository allocationRepository;
     private final LecturerCourseAccess lecturerCourseAccess;
+    private final com.backend.fourth.attendance.repository.AttendanceRepository attendanceRepository;
 
     @Transactional(readOnly = true)
     public AllocationStatsResponse getAllocationStats(ExamSession examSession) {
         lecturerCourseAccess.requireReadAccess(examSession);
-        long registered = registrationRepository.countByCourseCodeAndAcademicYearAndSemester(
-                examSession.getCourseCode(), examSession.getAcademicYear(), examSession.getSemester());
+        var registeredStudents = registrationRepository.findByCourseCodeAndAcademicYearAndSemesterOrderByComputerNumberAsc(
+                examSession.getCourseCode(), examSession.getAcademicYear(), examSession.getSemester()).stream()
+                .map(com.backend.fourth.student.entity.StudentRegistration::getComputerNumber)
+                .collect(java.util.stream.Collectors.toSet());
+        long registered = registeredStudents.size();
 
         List<ExamVenue> examVenues = examVenueRepository.findByExamSessionIdOrderByVenueIdAsc(examSession.getExamSessionId());
-        List<StudentVenueAllocation> allocations = allocationRepository.findByExamSessionId(examSession.getExamSessionId());
+        List<StudentVenueAllocation> rawAllocations = allocationRepository.findByExamSessionId(examSession.getExamSessionId());
+        var bookedVenues = examVenues.stream().map(ExamVenue::getVenueId).collect(java.util.stream.Collectors.toSet());
+        List<StudentVenueAllocation> allocations = rawAllocations.stream()
+                .filter(a -> registeredStudents.contains(a.getComputerNumber()) && bookedVenues.contains(a.getVenueId())).toList();
+        var allocatedStudents = allocations.stream().map(StudentVenueAllocation::getComputerNumber).collect(java.util.stream.Collectors.toSet());
+        long attended = attendanceRepository.findByExamSessionExamSessionId(examSession.getExamSessionId()).stream()
+                .filter(a -> a.getStudent()!=null && allocatedStudents.contains(a.getStudent().getComputerNumber()))
+                .filter(a -> a.getAttendanceStatus()!=null && a.getAttendanceStatus()!=com.backend.fourth.attendance.entity.AttendanceStatus.ABSENT)
+                .map(a -> a.getStudent().getComputerNumber()).distinct().count();
 
         Map<String, Student> studentsByComputer = new HashMap<>();
         Map<Integer, Venue> venuesById = new HashMap<>();
@@ -49,12 +61,13 @@ public class AllocationService {
             Venue venue = venueRepository.findById(examVenue.getVenueId())
                     .orElseThrow(() -> new IllegalArgumentException("Venue not found: " + examVenue.getVenueId()));
             venuesById.put(venue.getVenueId(), venue);
-            totalCapacity += venue.getCapacity();
+            int capacity = venue.getExaminationCapacity()!=null ? venue.getExaminationCapacity() : (examSession.getPeriodId()==null ? venue.getCapacity() : 0);
+            totalCapacity += capacity;
             long allocatedToVenue = allocations.stream()
                     .filter(allocation -> venue.getVenueId().equals(allocation.getVenueId()))
                     .count();
             fills.add(new AllocationStatsResponse.VenueFillStats(
-                    venue.getVenueId(), venue.getVenueName(), venue.getCapacity(), allocatedToVenue));
+                    venue.getVenueId(), venue.getVenueName(), capacity, allocatedToVenue));
         }
 
         List<AllocationStatsResponse.AllocationItem> items = new ArrayList<>();
@@ -78,7 +91,7 @@ public class AllocationService {
                 allocations.size(),
                 totalCapacity,
                 fills,
-                items);
+                items, registered - allocatedStudents.size(), attended, rawAllocations.size() - allocations.size());
     }
 
 }

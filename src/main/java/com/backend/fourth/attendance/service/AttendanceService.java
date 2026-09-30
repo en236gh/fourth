@@ -48,19 +48,24 @@ public class AttendanceService {
     private final StaffRepository staffRepository;
     private final ExaminationPassRepository examinationPassRepository;
     private final ExamPassQrService examPassQrService;
+    private final com.backend.fourth.student.repository.StudentRegistrationRepository registrationRepository;
+    private final com.backend.fourth.exam.service.LecturerCourseAccess lecturerCourseAccess;
+    private final com.backend.fourth.common.security.CurrentStaffResolver currentStaffResolver;
 
     @Transactional(readOnly = true)
     public StudentLookupResponse lookupStudent(String computerNumber, Integer examSessionId, Staff invigilator) {
         Student student = studentRepository.findByComputerNumber(computerNumber)
                 .orElseThrow(() -> new IllegalArgumentException("Student not found"));
-        examSessionRepository.findById(examSessionId)
+        ExamSession exam = examSessionRepository.findById(examSessionId)
                 .orElseThrow(() -> new IllegalArgumentException("Exam session not found"));
+        requireEligibility(exam, computerNumber);
 
         StudentVenueAllocation allocation = allocationRepository
                 .findByComputerNumberAndExamSessionId(computerNumber, examSessionId)
                 .orElseThrow(() -> new IllegalArgumentException("Student is not allocated to this examination"));
 
-        if (assignmentRepository.findByStaffIdAndExamSessionId(invigilator.getStaffId(), examSessionId).isEmpty()) {
+        if (!assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffIdAndAssignmentStatus(
+                examSessionId, allocation.getVenueId(), invigilator.getStaffId(), "PUBLISHED")) {
             throw new IllegalArgumentException("You are not assigned to this examination");
         }
 
@@ -98,6 +103,7 @@ public class AttendanceService {
                 .orElseThrow(() -> new IllegalArgumentException("Student not found"));
         ExamSession examSession = examSessionRepository.findById(request.examSessionId())
                 .orElseThrow(() -> new IllegalArgumentException("Exam session not found"));
+        requireEligibility(examSession, request.computerNumber());
         if ("COMPLETED".equals(examSession.getStatus())) {
             throw new IllegalStateException("Examination has already been completed");
         }
@@ -116,8 +122,7 @@ public class AttendanceService {
         AttendanceStatus status = AttendanceStatus.PRESENT;
         String alert = null;
         if (!allocation.getVenueId().equals(request.venueId())) {
-            status = AttendanceStatus.WRONG_VENUE;
-            alert = "Student checked in at a venue different from their allocation";
+            throw new IllegalArgumentException("Student must check in at their allocated examination venue");
         }
 
         Attendance attendance = new Attendance();
@@ -196,16 +201,18 @@ public class AttendanceService {
 
     @Transactional(readOnly = true)
     public List<AttendanceCheckInResponse> getAttendanceForExam(Integer examSessionId) {
-        examSessionRepository.findById(examSessionId)
-                .orElseThrow(() -> new IllegalArgumentException("Exam session not found"));
+        Set<Integer> venues = readableVenues(examSessionId);
         return attendanceRepository.findDetailedByExamSessionId(examSessionId).stream()
+                .filter(a -> venues==null || (a.getVenue()!=null && venues.contains(a.getVenue().getVenueId())))
                 .map(AttendanceCheckInResponse::from)
                 .toList();
     }
 
     @Transactional
     public AttendanceSummaryResponse updateScriptsCollected(Integer examSessionId, Integer count) {
-        List<Attendance> attendances = attendanceRepository.findByExamSessionExamSessionId(examSessionId);
+        Set<Integer> venues = readableVenues(examSessionId);
+        List<Attendance> attendances = attendanceRepository.findByExamSessionExamSessionId(examSessionId).stream()
+                .filter(a -> venues==null || (a.getVenue()!=null && venues.contains(a.getVenue().getVenueId()))).toList();
         attendances.forEach(attendance -> {
             attendance.setScriptsSubmitted(count > 0);
             attendanceRepository.save(attendance);
@@ -217,7 +224,9 @@ public class AttendanceService {
     public AttendanceSummaryResponse getAttendanceSummary(Integer examSessionId) {
         examSessionRepository.findById(examSessionId)
                 .orElseThrow(() -> new IllegalArgumentException("Exam session not found"));
-        List<Attendance> attendances = attendanceRepository.findByExamSessionExamSessionId(examSessionId);
+        Set<Integer> venues = readableVenues(examSessionId);
+        List<Attendance> attendances = attendanceRepository.findByExamSessionExamSessionId(examSessionId).stream()
+                .filter(a -> venues==null || (a.getVenue()!=null && venues.contains(a.getVenue().getVenueId()))).toList();
         long present = attendances.stream()
                 .filter(attendance -> attendance.getAttendanceStatus() == AttendanceStatus.PRESENT)
                 .count();
@@ -247,6 +256,8 @@ public class AttendanceService {
         LocalDateTime markedAt = LocalDateTime.now();
         int marked = 0;
         for (StudentVenueAllocation allocation : allocations) {
+            if (!registrationRepository.existsByComputerNumberAndCourseCodeAndAcademicYearAndSemester(allocation.getComputerNumber(),
+                    examSession.getCourseCode(), examSession.getAcademicYear(), examSession.getSemester())) continue;
             if (alreadyRecorded.contains(allocation.getComputerNumber())) {
                 continue;
             }
@@ -283,6 +294,24 @@ public class AttendanceService {
                 .orElseThrow(() -> new IllegalArgumentException("No invigilator assigned for auto-absent marking"));
         return staffRepository.findById(staffId)
                 .orElseThrow(() -> new IllegalArgumentException("Invigilator staff not found"));
+    }
+
+    private void requireEligibility(ExamSession exam, String student) {
+        if (!exam.isSchedulePublished()) throw new IllegalStateException("Examination timetable is not published");
+        if (!registrationRepository.existsByComputerNumberAndCourseCodeAndAcademicYearAndSemester(
+                student, exam.getCourseCode(), exam.getAcademicYear(), exam.getSemester()))
+            throw new IllegalArgumentException("Student is not registered for this course examination");
+    }
+
+    private Set<Integer> readableVenues(Integer examSessionId) {
+        ExamSession exam=examSessionRepository.findById(examSessionId).orElseThrow(() -> new IllegalArgumentException("Exam session not found"));
+        if (lecturerCourseAccess.hasAuthority("ADMINISTRATOR")) return null;
+        if (!exam.isSchedulePublished()) throw new org.springframework.security.access.AccessDeniedException("Examination timetable is not published");
+        if (lecturerCourseAccess.hasAuthority("LECTURER")) { lecturerCourseAccess.requireAssigned(exam); return null; }
+        Set<Integer> venues=assignmentRepository.findByStaffIdAndExamSessionId(currentStaffResolver.requireCurrentStaff().getStaffId(),examSessionId).stream()
+                .filter(a -> "PUBLISHED".equals(a.getAssignmentStatus())).map(InvigilatorAssignment::getVenueId).collect(Collectors.toSet());
+        if (venues.isEmpty()) throw new org.springframework.security.access.AccessDeniedException("You are not assigned to this examination");
+        return venues;
     }
 
     private VerificationMethod parseVerification(String value) {

@@ -54,6 +54,9 @@ class AdminInvigilatorAssignmentServiceTest {
 
     private final AcademicSelection selection = new AcademicSelection(1, 2, 3, "CSC3101");
 
+    @org.mockito.Mock
+    private com.backend.fourth.scheduling.SchedulingAccess schedulingAccess;
+
     @InjectMocks
     private AdminInvigilatorAssignmentService service;
 
@@ -61,7 +64,8 @@ class AdminInvigilatorAssignmentServiceTest {
     void bulkPublishDeduplicatesExamsAndPublishesDrafts() {
         when(examSessionRepository.findById(10)).thenReturn(Optional.of(exam(10, LocalTime.of(9, 0), LocalTime.of(11, 0))));
         var draft = assignment(10, 1, 2, "DRAFT");
-        var published = assignment(10, 2, 2, "PUBLISHED");
+        var published = assignment(10, 2, 3, "PUBLISHED");
+        when(staffRepository.findById(3)).thenReturn(Optional.of(staff(3, "Second", "ACTIVE", true)));
         when(assignmentRepository.findByExamSessionId(10)).thenReturn(List.of(draft, published));
         when(staffRepository.findById(2)).thenReturn(Optional.of(staff(2, "Staff", "ACTIVE", true)));
         when(assignmentRepository.save(any())).thenAnswer(i -> i.getArgument(0));

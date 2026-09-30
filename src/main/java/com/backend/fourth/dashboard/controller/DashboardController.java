@@ -119,11 +119,12 @@ public class DashboardController {
         }
 
         List<ExamSession> exams = lecturerCourseAccess.myExams();
-        long totalRegistered = exams.stream().mapToLong(exam -> registrationRepository
-                .countByCourseCodeAndAcademicYearAndSemester(
-                        exam.getCourseCode(), exam.getAcademicYear(), exam.getSemester())).sum();
-        long totalAllocated = exams.stream().mapToLong(exam -> allocationRepository
-                .countByExamSessionId(exam.getExamSessionId())).sum();
+        var stats = exams.stream().map(allocationService::getAllocationStats).toList();
+        long totalRegistered = stats.stream().mapToLong(s -> s.registeredStudents()).sum();
+        long totalAllocated = stats.stream().mapToLong(s -> s.allocatedStudents()).sum();
+        data.put("unallocatedStudents", stats.stream().mapToLong(s -> s.unallocatedStudents()).sum());
+        data.put("attendedStudents", stats.stream().mapToLong(s -> s.attendedStudents()).sum());
+        data.put("examinations", stats);
         data.put("courseCodes", lecturerCourseAccess.myCourseCodes());
         data.put("totalExaminations", exams.size());
         data.put("registeredStudents", totalRegistered);
@@ -136,25 +137,19 @@ public class DashboardController {
     @PreAuthorize("hasAuthority('INVIGILATOR')")
     public ApiResponse<Map<String, Object>> invigilatorDashboard() {
         Staff staff = currentStaffResolver.requireCurrentStaff();
-        List<InvigilatorAssignment> assignments = assignmentRepository.findByStaffId(staff.getStaffId());
+        List<InvigilatorAssignment> assignments = assignmentRepository.findByStaffIdAndAssignmentStatus(staff.getStaffId(), "PUBLISHED").stream()
+                .filter(a -> examSessionRepository.findById(a.getExamSessionId()).map(ExamSession::isSchedulePublished).orElse(false)).toList();
         List<Integer> examIds = assignments.stream()
                 .map(InvigilatorAssignment::getExamSessionId)
                 .distinct()
                 .toList();
 
-        long present = examIds.stream()
-                .mapToLong(id -> attendanceRepository.countByExamSessionExamSessionIdAndAttendanceStatus(
-                        id, AttendanceStatus.PRESENT))
-                .sum();
-        long absent = examIds.stream()
-                .mapToLong(id -> attendanceRepository.countByExamSessionExamSessionIdAndAttendanceStatus(
-                        id, AttendanceStatus.ABSENT))
-                .sum();
-        long scripts = examIds.isEmpty() ? 0 : attendanceRepository.findAll().stream()
-                .filter(attendance -> attendance.getExamSession() != null
-                        && examIds.contains(attendance.getExamSession().getExamSessionId())
-                        && Boolean.TRUE.equals(attendance.getScriptsSubmitted()))
-                .count();
+        var attendance = examIds.stream().flatMap(id -> attendanceRepository.findByExamSessionExamSessionId(id).stream())
+                .filter(a -> a.getExamSession()!=null && a.getVenue()!=null && assignments.stream().anyMatch(duty ->
+                        duty.getExamSessionId().equals(a.getExamSession().getExamSessionId()) && duty.getVenueId().equals(a.getVenue().getVenueId()))).toList();
+        long present = attendance.stream().filter(a -> a.getAttendanceStatus()==AttendanceStatus.PRESENT).count();
+        long absent = attendance.stream().filter(a -> a.getAttendanceStatus()==AttendanceStatus.ABSENT).count();
+        long scripts = attendance.stream().filter(a -> Boolean.TRUE.equals(a.getScriptsSubmitted())).count();
         long incidents = examIds.isEmpty() ? 0 : incidentRepository.countByExamSessionExamSessionIdIn(examIds);
 
         Map<String, Object> data = new HashMap<>();

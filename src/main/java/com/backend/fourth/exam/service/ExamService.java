@@ -33,6 +33,8 @@ public class ExamService {
     private final VenueRepository venueRepository;
     private final AttendanceService attendanceService;
     private final LecturerCourseAccess lecturerCourseAccess;
+    private final com.backend.fourth.invigilator.repository.InvigilatorAssignmentRepository assignmentRepository;
+    private final com.backend.fourth.common.security.CurrentStaffResolver currentStaffResolver;
 
     @Transactional(readOnly = true)
     public List<ExamSessionResponse> listExams() {
@@ -75,18 +77,25 @@ public class ExamService {
     @Transactional(readOnly = true)
     public List<ExamVenueResponse> listExamVenues(Integer examSessionId) {
         ExamSession exam = requireExam(examSessionId);
-        if (!lecturerCourseAccess.hasAuthority("INVIGILATOR")) {
+        java.util.Set<Integer> allowedVenues = null;
+        if (lecturerCourseAccess.hasAuthority("ADMINISTRATOR") || !lecturerCourseAccess.hasAuthority("INVIGILATOR")) {
             lecturerCourseAccess.requireReadAccess(exam);
+        } else {
+            if (!exam.isSchedulePublished()) throw new org.springframework.security.access.AccessDeniedException("Examination timetable is not published");
+            allowedVenues = assignmentRepository.findByStaffIdAndExamSessionId(currentStaffResolver.requireCurrentStaff().getStaffId(), examSessionId).stream()
+                    .filter(a -> "PUBLISHED".equals(a.getAssignmentStatus())).map(a -> a.getVenueId()).collect(java.util.stream.Collectors.toSet());
+            if (allowedVenues.isEmpty()) throw new org.springframework.security.access.AccessDeniedException("You are not assigned to this examination");
         }
         List<ExamVenueResponse> venues = new ArrayList<>();
         for (ExamVenue examVenue : examVenueRepository.findByExamSessionIdOrderByVenueIdAsc(examSessionId)) {
+            if (allowedVenues!=null && !allowedVenues.contains(examVenue.getVenueId())) continue;
             Venue venue = venueRepository.findById(examVenue.getVenueId())
                     .orElseThrow(() -> new IllegalArgumentException("Venue not found: " + examVenue.getVenueId()));
             venues.add(new ExamVenueResponse(
                     venue.getVenueId(),
                     venue.getVenueName(),
                     venue.getBuilding(),
-                    venue.getCapacity()));
+                    venue.getExaminationCapacity()!=null ? venue.getExaminationCapacity() : venue.getCapacity()));
         }
         return venues;
     }
@@ -133,6 +142,6 @@ public class ExamService {
                 exam.getAcademicYear(),
                 exam.getSemester(),
                 exam.getExamType(),
-                exam.getStatus());
+                exam.getStatus(), exam.getPeriodId(), exam.isSchedulePublished());
     }
 }

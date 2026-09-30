@@ -22,4 +22,7 @@ public class Venue {
 
     @Column(name = "capacity", nullable = false)
     private Integer capacity;
+
+    @Column(name = "examination_capacity")
+    private Integer examinationCapacity;
 }

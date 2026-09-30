@@ -17,6 +17,12 @@ public class ExamSession {
     @Column(name = "exam_session_id")
     private Integer examSessionId;
 
+    @Column(name = "period_id")
+    private Integer periodId;
+
+    @Column(name = "schedule_published", nullable = false)
+    private boolean schedulePublished = true;
+
     @Column(name = "course_code", nullable = false)
     private String courseCode;
 

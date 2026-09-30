@@ -81,6 +81,7 @@ public class StudentExamPassService {
                     periodKey(registration.getAcademicYear(), registration.getSemester()));
 
             for (ExamSession session : sessions) {
+                if (!session.isSchedulePublished()) continue;
                 Optional<StudentVenueAllocation> allocation = allocationRepository
                         .findByComputerNumberAndExamSessionId(
                                 student.getComputerNumber(), session.getExamSessionId());
@@ -225,6 +226,7 @@ public class StudentExamPassService {
                     registration.getSemester());
 
             for (ExamSession session : sessions) {
+                if (!session.isSchedulePublished()) continue;
                 Optional<StudentVenueAllocation> allocation = allocationRepository
                         .findByComputerNumberAndExamSessionId(
                                 student.getComputerNumber(), session.getExamSessionId());

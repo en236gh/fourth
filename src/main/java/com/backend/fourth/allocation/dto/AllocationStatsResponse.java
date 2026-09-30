@@ -8,7 +8,10 @@ public record AllocationStatsResponse(
         long allocatedStudents,
         long totalVenueCapacity,
         List<VenueFillStats> venueFills,
-        List<AllocationItem> allocations
+        List<AllocationItem> allocations,
+        long unallocatedStudents,
+        long attendedStudents,
+        long invalidAllocationRecords
 ) {
     public record VenueFillStats(Integer venueId, String venueName, int capacity, long allocated) {
     }

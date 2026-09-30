@@ -58,11 +58,15 @@ class AttendanceServiceTest {
     @Mock
     private ExamPassQrService examPassQrService;
 
+    @Mock private com.backend.fourth.student.repository.StudentRegistrationRepository registrationRepository;
+    @Mock private com.backend.fourth.exam.service.LecturerCourseAccess lecturerCourseAccess;
+    @Mock private com.backend.fourth.common.security.CurrentStaffResolver currentStaffResolver;
     @InjectMocks
     private AttendanceService attendanceService;
 
     @Test
     void shouldRejectDuplicateAttendanceForSameStudentAndExamSession() {
+        when(registrationRepository.existsByComputerNumberAndCourseCodeAndAcademicYearAndSemester(any(), any(), any(), any())).thenReturn(true);
         CheckInRequest request = new CheckInRequest("2022004264", 1, 1, "COMPUTER");
         Staff invigilator = createStaff();
 
@@ -81,6 +85,7 @@ class AttendanceServiceTest {
 
     @Test
     void shouldLookupStudentFromValidQrToken() {
+        when(registrationRepository.existsByComputerNumberAndCourseCodeAndAcademicYearAndSemester(any(), any(), any(), any())).thenReturn(true);
         String token = "signed.qr.token";
         Claims claims = mock(Claims.class);
         when(claims.getSubject()).thenReturn("2022004264");
@@ -100,8 +105,7 @@ class AttendanceServiceTest {
         when(studentRepository.findByComputerNumber("2022004264")).thenReturn(Optional.of(createStudent()));
         when(allocationRepository.findByComputerNumberAndExamSessionId("2022004264", 5))
                 .thenReturn(Optional.of(createAllocationForExam(5)));
-        when(assignmentRepository.findByStaffIdAndExamSessionId(2, 5))
-                .thenReturn(java.util.List.of(mock(com.backend.fourth.invigilator.entity.InvigilatorAssignment.class)));
+        when(assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffIdAndAssignmentStatus(5, 16, 2, "PUBLISHED")).thenReturn(true);
         Venue venue = new Venue();
         venue.setVenueId(16);
         venue.setVenueName("Main LT 1");
@@ -132,6 +136,7 @@ class AttendanceServiceTest {
 
     @Test
     void shouldRejectQrLookupWhenInvigilatorNotAssigned() {
+        when(registrationRepository.existsByComputerNumberAndCourseCodeAndAcademicYearAndSemester(any(), any(), any(), any())).thenReturn(true);
         String token = "signed.qr.token";
         Claims claims = mock(Claims.class);
         when(claims.getSubject()).thenReturn("2022004264");
@@ -151,7 +156,7 @@ class AttendanceServiceTest {
         when(studentRepository.findByComputerNumber("2022004264")).thenReturn(Optional.of(createStudent()));
         when(allocationRepository.findByComputerNumberAndExamSessionId("2022004264", 5))
                 .thenReturn(Optional.of(createAllocationForExam(5)));
-        when(assignmentRepository.findByStaffIdAndExamSessionId(2, 5)).thenReturn(java.util.List.of());
+        when(assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffIdAndAssignmentStatus(5, 16, 2, "PUBLISHED")).thenReturn(false);
 
         assertThrows(
                 IllegalArgumentException.class,
@@ -160,6 +165,7 @@ class AttendanceServiceTest {
 
     @Test
     void shouldAllowQrCheckInWhenSessionHasNotStartedYet() {
+        when(registrationRepository.existsByComputerNumberAndCourseCodeAndAcademicYearAndSemester(any(), any(), any(), any())).thenReturn(true);
         String token = "signed.qr.token";
         Claims claims = mock(Claims.class);
         when(claims.getSubject()).thenReturn("2022004264");
@@ -191,6 +197,43 @@ class AttendanceServiceTest {
 
         assertDoesNotThrow(
                 () -> attendanceService.checkInByQr(new QrCheckInRequest(token, 5, 16), createStaff()));
+    }
+
+
+    @Test void draftExamCannotBeLookedUpEvenWithAStudentRecord() {
+        ExamSession exam=createExamSession();exam.setSchedulePublished(false);
+        when(studentRepository.findByComputerNumber("2022004264")).thenReturn(Optional.of(createStudent()));
+        when(examSessionRepository.findById(1)).thenReturn(Optional.of(exam));
+        assertThrows(IllegalStateException.class,()->attendanceService.lookupStudent("2022004264",1,createStaff()));
+        org.mockito.Mockito.verifyNoInteractions(allocationRepository);
+    }
+
+    @Test void staleAllocationCannotAuthorizeUnregisteredStudent() {
+        when(studentRepository.findByComputerNumber("2022004264")).thenReturn(Optional.of(createStudent()));
+        when(examSessionRepository.findById(1)).thenReturn(Optional.of(createExamSession()));
+        assertThrows(IllegalArgumentException.class,()->attendanceService.lookupStudent("2022004264",1,createStaff()));
+        org.mockito.Mockito.verifyNoInteractions(allocationRepository);
+    }
+
+    @Test void checkInRejectsWrongExamVenueInsteadOfOverridingAllocation() {
+        when(assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffIdAndAssignmentStatus(1,2,2,"PUBLISHED")).thenReturn(true);
+        when(studentRepository.findByComputerNumber("2022004264")).thenReturn(Optional.of(createStudent()));
+        when(examSessionRepository.findById(1)).thenReturn(Optional.of(createExamSession()));
+        when(registrationRepository.existsByComputerNumberAndCourseCodeAndAcademicYearAndSemester(any(),any(),any(),any())).thenReturn(true);
+        when(venueRepository.findById(2)).thenReturn(Optional.of(createVenue()));
+        when(allocationRepository.findByComputerNumberAndExamSessionId("2022004264",1)).thenReturn(Optional.of(createAllocation()));
+        assertThrows(IllegalArgumentException.class,()->attendanceService.checkIn(new CheckInRequest("2022004264",1,2,"QR_CODE"),createStaff()));
+        org.mockito.Mockito.verify(attendanceRepository,org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test void attendanceReadChecksLecturerCourseOwnership() {
+        ExamSession exam=createExamSession();
+        when(examSessionRepository.findById(1)).thenReturn(Optional.of(exam));
+        when(lecturerCourseAccess.hasAuthority(any())).thenAnswer(i -> "LECTURER".equals(i.getArgument(0)));
+        org.mockito.Mockito.doThrow(new org.springframework.security.access.AccessDeniedException("Not assigned"))
+                .when(lecturerCourseAccess).requireAssigned(exam);
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,()->attendanceService.getAttendanceForExam(1));
+        org.mockito.Mockito.verifyNoInteractions(attendanceRepository);
     }
 
     private Staff createStaff() {

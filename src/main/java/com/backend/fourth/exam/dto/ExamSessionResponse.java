@@ -12,6 +12,8 @@ public record ExamSessionResponse(
         String academicYear,
         Integer semester,
         String examType,
-        String status
+        String status,
+        Integer periodId,
+        boolean schedulePublished
 ) {
 }

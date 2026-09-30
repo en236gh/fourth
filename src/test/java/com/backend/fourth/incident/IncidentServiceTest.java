@@ -56,7 +56,7 @@ class IncidentServiceTest {
         Venue venue = new Venue();
         venue.setVenueId(2);
 
-        when(assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffId(1, 2, 5)).thenReturn(true);
+        when(assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffIdAndAssignmentStatus(1, 2, 5, "PUBLISHED")).thenReturn(true);
         when(examSessionRepository.findById(1)).thenReturn(Optional.of(exam));
         when(venueRepository.findById(2)).thenReturn(Optional.of(venue));
         when(incidentRepository.save(any(Incident.class))).thenAnswer(invocation -> {

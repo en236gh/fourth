@@ -40,7 +40,7 @@ public class LecturerCourseAccess {
 
     public List<ExamSession> myExams() {
         List<String> courses = myCourseCodes();
-        return courses.isEmpty() ? List.of() : examSessionRepository.findByCourseCodeIn(courses);
+        return courses.isEmpty() ? List.of() : examSessionRepository.findByCourseCodeIn(courses).stream().filter(ExamSession::isSchedulePublished).toList();
     }
 
     public List<ExamSession> visibleExams() {
@@ -48,6 +48,7 @@ public class LecturerCourseAccess {
     }
 
     public void requireAssigned(ExamSession exam) {
+        if (!exam.isSchedulePublished()) throw new AccessDeniedException("Examination timetable is not published");
         if (!courseLecturerRepository.existsByCourseCodeAndStaffId(exam.getCourseCode(),
                 currentStaffResolver.requireCurrentStaff().getStaffId())) {
             throw new AccessDeniedException("You are not assigned to this examination's course");

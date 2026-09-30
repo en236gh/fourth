@@ -36,6 +36,7 @@ public class InvigilatorService {
         for (InvigilatorAssignment assignment : assignmentRepository.findByStaffIdAndAssignmentStatus(staff.getStaffId(), "PUBLISHED")) {
             ExamSession exam = examSessionRepository.findById(assignment.getExamSessionId())
                     .orElseThrow(() -> new IllegalArgumentException("Exam session not found"));
+            if (!exam.isSchedulePublished()) continue;
             Venue venue = venueRepository.findById(assignment.getVenueId())
                     .orElseThrow(() -> new IllegalArgumentException("Venue not found"));
             responses.add(toResponse(exam, venue));
@@ -56,6 +57,7 @@ public class InvigilatorService {
         if ("COMPLETED".equals(exam.getStatus())) {
             throw new IllegalStateException("Examination has already been completed");
         }
+        if (!exam.isSchedulePublished()) throw new IllegalStateException("Examination timetable is not published");
         exam.setStatus("IN_PROGRESS");
         examSessionRepository.save(exam);
 

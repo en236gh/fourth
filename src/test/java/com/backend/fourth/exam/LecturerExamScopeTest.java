@@ -28,6 +28,7 @@ class LecturerExamScopeTest {
     @Mock StudentRegistrationRepository registrations;
     @Mock StudentVenueAllocationRepository allocations;
     @Mock LecturerCourseAccess access;
+    @Mock com.backend.fourth.allocation.service.AllocationService allocationService;
     @InjectMocks ExamService examService;
     @InjectMocks DashboardController dashboard;
 
@@ -55,9 +56,7 @@ class LecturerExamScopeTest {
         var exam = exam();
         when(access.myExams()).thenReturn(List.of(exam));
         when(access.myCourseCodes()).thenReturn(List.of("CSC1202"));
-        when(registrations.countByCourseCodeAndAcademicYearAndSemester("CSC1202", "2026/2027", 1))
-                .thenReturn(30L);
-        when(allocations.countByExamSessionId(22)).thenReturn(25L);
+        when(allocationService.getAllocationStats(exam)).thenReturn(new com.backend.fourth.allocation.dto.AllocationStatsResponse(22,30,25,50,List.of(),List.of(),5,20,0));
         var data = dashboard.lecturerDashboard(null).data();
         assertEquals(1, data.get("totalExaminations"));
         assertEquals(30L, data.get("registeredStudents"));
