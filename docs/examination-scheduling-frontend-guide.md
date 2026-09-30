@@ -1,5 +1,7 @@
 # Examination scheduling: backend changes and frontend integration
 
+> Workflow update: [Administrator-triggered automatic scheduling](draft-period-lifecycle.md) supersedes the manual course-selection and separate staffing flow below, including creation/generation response shapes. Delete and reset-draft actions are removed.
+
 > Scheduling update: see [automatic academic year and required seats](scheduling-automatic-defaults-integration.md). Omit academicYear from period setup; display registration counts as required seats.
 
 This change implements the backend workflow only. No frontend files were changed.

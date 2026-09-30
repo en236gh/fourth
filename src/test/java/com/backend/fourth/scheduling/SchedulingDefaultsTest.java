@@ -28,11 +28,18 @@ class SchedulingDefaultsTest {
         assertThrows(IllegalStateException.class,service::defaults);
         assertThrows(IllegalStateException.class,service::defaults);
     }
-    @Test void createIgnoresClientYearAndUsesRegistrationYear() {
+    @Test void createHonorsExplicitAcademicYear() {
         when(jdbc.queryForObject("SELECT max(academic_year) FROM student_registration",String.class)).thenReturn("2090/2091");
         when(jdbc.queryForObject(contains("INSERT INTO examination_period("),eq(Integer.class),any(),any(),any(),any(),any(),any(),any())).thenReturn(12);
         doReturn(Map.of("period_id",12)).when(service).detail(12);
         service.create(request("1900/1901"));
+        verify(jdbc).queryForObject(contains("INSERT INTO examination_period("),eq(Integer.class),eq("Finals"),eq("1900/1901"),eq(1),eq("FINAL"),eq(LocalDate.of(2090,1,2)),eq(LocalDate.of(2090,1,8)),eq("Africa/Lusaka"));
+    }
+    @Test void omittedAcademicYearUsesLatestRegistrationYear() {
+        when(jdbc.queryForObject("SELECT max(academic_year) FROM student_registration",String.class)).thenReturn("2090/2091");
+        when(jdbc.queryForObject(contains("INSERT INTO examination_period("),eq(Integer.class),any(),any(),any(),any(),any(),any(),any())).thenReturn(12);
+        doReturn(Map.of("period_id",12)).when(service).detail(12);
+        service.create(request(null));
         verify(jdbc).queryForObject(contains("INSERT INTO examination_period("),eq(Integer.class),eq("Finals"),eq("2090/2091"),eq(1),eq("FINAL"),eq(LocalDate.of(2090,1,2)),eq(LocalDate.of(2090,1,8)),eq("Africa/Lusaka"));
     }
     @Test void editingPreservesPeriodYearAfterRegistrationRollover() {

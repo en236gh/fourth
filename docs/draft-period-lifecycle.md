@@ -1,54 +1,76 @@
-# Examination Draft Period Lifecycle
+# Administrator-triggered automatic scheduling
 
-## What Changed
+The administrator enters the academic cycle and exam window, then clicks **Generate schedule**. One request discovers exams, schedules times and venues, allocates registered students, and assigns available invigilators. The administrator reviews the result and clicks **Publish** after validation passes.
 
-Administrators can create multiple examination-period drafts with the same academic year, semester, and exam type. For example, several `2025/2026`, semester 1, `FINAL` drafts may coexist while you try different dates, course selections, or scheduling arrangements.
+This repository contains the backend only. The separate administrator dashboard must wire the button to the API below and remove its course-selection, draft-delete, and reset-draft controls. Automation runs only on an administrator request; it is not a background job.
 
-The restriction was enforced in two places: the period-creation service and a database unique constraint. The service restriction has been removed, and migration `V39__allow_multiple_draft_periods.sql` drops the old constraint for databases that already have the scheduling schema. Existing periods and their IDs are preserved.
-
-The application has no frontend source in this repository. The backend API supports the behavior; a separate dashboard client must call the delete endpoint below to expose a delete action.
-
-## Create a Draft
-
-Use the existing administrator endpoint:
+## Generate schedule button
 
 ```http
 POST /api/admin/examination-periods
 Authorization: Bearer <administrator-token>
 Content-Type: application/json
+
+{
+  "name": "Semester 1 final examinations",
+  "academicYear": "2026/2027",
+  "semester": 1,
+  "examType": "FINAL",
+  "startDate": "2027-06-07",
+  "endDate": "2027-06-18",
+  "daysOfWeek": [1, 2, 3, 4, 5],
+  "slots": [
+    {"startTime": "09:00", "endTime": "12:00"},
+    {"startTime": "14:00", "endTime": "17:00"}
+  ]
+}
 ```
 
-The request body is unchanged. The academic year is chosen from the current registration data by the service. The endpoint returns the full new period with revision `0`.
+`academicYear` is honored when supplied. If omitted, the latest academic year in `student_registration` is used; `GET /api/admin/examination-periods/defaults` supplies that default. Always display the resolved cycle. One schedule per academic year, semester and exam type can be created through the service. If it already exists, open it using the list/detail APIs and review or regenerate it. Existing same-cycle records from the previous workflow are preserved.
 
-## Delete One Draft
+The response uses the existing API envelope, with this new `data` structure:
 
-Delete a specific period by ID, using the latest revision returned by `GET /api/admin/examination-periods` or `GET /api/admin/examination-periods/{id}`:
+- `generation.result`: `outcome`, `placements`, `unresolvedCourses`, `searchSteps`, and `problems`.
+- `generation.period`: the schedule with `period_id`, current `revision`, discovered courses, exams, bookings, student allocations, and assignments.
+- `staffing`: per-exam assignment results, including `understaffedVenueIds`.
+- `validation`: `valid` and publication `problems`.
+
+`success` means timetable generation completed. It does not mean the schedule can be published: inspect `validation.valid` and show staffing shortages. Use the returned schedule ID for subsequent actions, even when generation fails. Disable the button while its request is pending. After a transport error, reload the schedule list before retrying creation.
+
+## Source data and review
+
+Only active catalog courses with at least one registration matching the schedule's exact academic year and semester become exams. Registration rows have no active/inactive or exam-type eligibility field in this schema. The same cycle registration rule currently applies to all exam types. Empty or mismatched registration data produces an actionable failure; the system never invents students or seats from programme membership.
+
+There is no catalog exam-duration field. Generation uses `app.scheduling.exam-duration-minutes` (default `120`, valid range 1–1440) for all exams. Configure this before generation. Only venues with verified `examination_capacity` are used. The scheduler respects shared students, existing exams, venue reservations and venue unavailability. Invigilators must be active with the `INVIGILATOR` role and free of overlapping assignments; workload is used to distribute duties. Separate qualification and staff-availability calendars are not modeled.
+
+Timetable generation, allocations and automatic staffing run in one transaction. A scheduling failure saves no partial timetable; an initial attempt retains its schedule setup for correction. Staffing shortages retain the generated timetable for review. An unexpected staffing error rolls back the transaction.
+
+The database's existing `DRAFT` status means **unpublished / awaiting review**. It is retained for compatibility with publication guards and student visibility, not as a separate administrator course-selection step. `examination_period_course` stores the automatically generated course snapshot.
+
+## Correct and regenerate
+
+Fix registrations, catalog data, venue capacities or unavailable intervals, then call:
 
 ```http
-DELETE /api/admin/examination-periods/12?revision=3
-Authorization: Bearer <administrator-token>
+POST /api/admin/examination-periods/{id}/generate
+Content-Type: application/json
+
+{"revision": 1, "searchLimit": 100000}
 ```
 
-A successful response uses the standard API envelope with message `Draft period deleted` and `data: null`. A stale revision is rejected; reload the period and confirm its current state before retrying.
+Use the latest revision from the response or detail endpoint. A successful regeneration replaces unpublished exams, allocations and unpublished staffing, then assigns invigilators again. Failed searches preserve the existing timetable, course snapshot, staffing and revision. Published or operational exams cannot be regenerated. Empty setup records can be edited with the existing `PUT /{id}?revision=...` endpoint; generated schedules can be reviewed through placement edits and staffing controls.
 
-Deletion is transactional and period-scoped. It removes that draft's draft invigilator assignments, generated allocations, venue bookings, generated exam sessions, course selection, and time slots, then deletes the period itself. Audit rows remain as history. It does not delete students, registrations, courses, venues, or another period, including another draft for the same cycle.
+Removed routes: `PUT /{id}/courses`, `DELETE /{id}`, and `POST /{id}/reset-draft`. Reading catalog counts remains available for data review, but does not select exams. There is no separate required auto-assignment step; the existing staffing action remains available to fill shortages after staff data is corrected.
 
-## Deletion Safeguards
+## Publish button
 
-Deletion is allowed only while the period status is `DRAFT`. It is refused if the period has published staffing, published exam sessions, completed or otherwise non-scheduled exams, attendance, incident records, generated reports, examination change requests, or amendment history. Published periods cannot be deleted.
+```http
+POST /api/admin/examination-periods/{id}/publish
+Content-Type: application/json
 
-Draft invigilator assignments are removed with the draft. If the period has operational records or reviewed/published history, the API returns an error and leaves the period in place. This is intentionally narrower than the development-only phase 25 reset script, which clears scheduling data across the database.
+{"revision": 1}
+```
 
-## Scheduling Within a Shared Cycle
+Use `GET /{id}/validation` to review current problems. Publishing checks current course discovery, registration coverage, capacity, timetable conflicts and staffing again. Newly registered courses require regeneration; newly registered students require matching allocations. Successful publication exposes exams and allocations to students and publishes invigilator assignments together. Generation alone never exposes an unpublished timetable to students.
 
-Multiple drafts can share an academic year, semester, and exam type. Generation still blocks a selected course if an equivalent legacy exam or exam in a published period already exists. Another unpublished draft does not block that course solely because it shares the cycle.
-
-Existing exams in other periods continue to count as timetable reservations: overlapping venue bookings and time placements remain unavailable. The cycle change does not bypass scheduling, capacity, registration, staffing, or publication validation.
-
-## Database Deployment
-
-Apply migration `V39__allow_multiple_draft_periods.sql` to the database before relying on multiple periods with the same cycle fields. This application has Flyway disabled, so adding the migration file does not apply it automatically; use the same deployment process used for the existing scheduling SQL migrations (for example, run the file once in Supabase SQL Editor). The migration drops only the old uniqueness constraint on `(academic_year, semester, exam_type)`; it does not alter existing period data or the per-period unique exam-course index.
-
-## Tests
-
-The opt-in PostgreSQL integration test `SchedulingPostgresTest` now verifies that two same-cycle drafts can be created and generated, deleting one leaves the other intact, a replacement draft can be created, stale revisions are rejected, and published periods cannot be deleted.
+No schema migration is required for this API change. Existing scheduling migrations and database safeguards remain in effect. Deploy the dashboard update with the backend because the creation/generation response shape and removed routes are breaking changes.

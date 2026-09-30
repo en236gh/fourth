@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class SchedulingController {
     private final SchedulingService service;
+    private final ScheduleAutomationService automation;
     private final AdminInvigilatorAssignmentService assignments;
     private final CurrentStaffResolver staff;
 
@@ -22,24 +23,21 @@ public class SchedulingController {
     @GetMapping("/defaults")
     public ApiResponse<?> defaults() { return ApiResponse.success("Scheduling defaults",service.defaults()); }
     @PostMapping
-    public ApiResponse<?> create(@Valid @RequestBody SchedulingRequests.Period request) { return ApiResponse.success("Draft period created",service.create(request)); }
-    @DeleteMapping("/{id}")
-    public ApiResponse<?> deleteDraft(@PathVariable int id,@RequestParam long revision) { service.deleteDraftPeriod(id,revision); return ApiResponse.success("Draft period deleted",null); }
+    public ApiResponse<?> create(@Valid @RequestBody SchedulingRequests.Period request) {
+        var result=automation.create(request);
+        return new ApiResponse<>(result.generation().result().outcome()==ConstraintScheduler.Outcome.COMPLETE,"Schedule generation finished; review results",result);
+    }
     @PutMapping("/{id}")
     public ApiResponse<?> update(@PathVariable int id,@RequestParam long revision,@Valid @RequestBody SchedulingRequests.Period request) { return ApiResponse.success("Period setup updated",service.update(id,revision,request)); }
     @GetMapping("/{id}")
     public ApiResponse<?> detail(@PathVariable int id) { return ApiResponse.success("Examination period",service.detail(id)); }
     @GetMapping("/{id}/courses")
     public ApiResponse<?> courses(@PathVariable int id,@RequestParam(required=false) Integer schoolId) { return ApiResponse.success("Eligible course counts",service.catalog(id,schoolId)); }
-    @PutMapping("/{id}/courses")
-    public ApiResponse<?> select(@PathVariable int id,@Valid @RequestBody SchedulingRequests.Selection request) { return ApiResponse.success("Course selection saved",service.select(id,request)); }
     @PostMapping("/{id}/generate")
     public ApiResponse<?> generate(@PathVariable int id,@Valid @RequestBody SchedulingRequests.Generate request) {
-        var generation=service.generate(id,request);
-        return new ApiResponse<>(generation.result().outcome()==ConstraintScheduler.Outcome.COMPLETE,generation.result().outcome().name(),generation);
+        var result=automation.generate(id,request);
+        return new ApiResponse<>(result.generation().result().outcome()==ConstraintScheduler.Outcome.COMPLETE,"Schedule generation finished; review results",result);
     }
-    @PostMapping("/{id}/reset-draft")
-    public ApiResponse<?> reset(@PathVariable int id,@Valid @RequestBody SchedulingRequests.Revision request) { return ApiResponse.success("Unpublished draft cleared",service.reset(id,request.revision())); }
     @PutMapping("/{id}/exams/{session}/placement")
     public ApiResponse<?> edit(@PathVariable int id,@PathVariable int session,@Valid @RequestBody SchedulingRequests.Edit request) { return ApiResponse.success("Placement and allocations updated",service.edit(id,session,request)); }
     @GetMapping("/{id}/validation")

@@ -24,12 +24,15 @@ class SchedulingAuthorizationTest {
             context.registerBean(SchedulingService.class,()->service);
             context.registerBean(AdminInvigilatorAssignmentService.class,()->mock(AdminInvigilatorAssignmentService.class));
             context.registerBean(CurrentStaffResolver.class,()->mock(CurrentStaffResolver.class));
+            context.registerBean(ScheduleAutomationService.class,()->mock(ScheduleAutomationService.class));
             context.registerBean(SchedulingController.class);context.refresh();
             var controller=context.getBean(SchedulingController.class);
             for(String role:List.of("STUDENT","LECTURER","INVIGILATOR")) {
                 SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken("user","",List.of(new SimpleGrantedAuthority(role))));
                 assertThrows(AccessDeniedException.class,controller::list);
                 assertThrows(AccessDeniedException.class,controller::defaults);
+                assertThrows(AccessDeniedException.class,()->controller.create(null));
+                assertThrows(AccessDeniedException.class,()->controller.generate(1,new SchedulingRequests.Generate(0,100000)));
                 assertThrows(AccessDeniedException.class,()->controller.publish(1,new SchedulingRequests.Revision(0)));
                 assertThrows(AccessDeniedException.class,controller::audit);
             }

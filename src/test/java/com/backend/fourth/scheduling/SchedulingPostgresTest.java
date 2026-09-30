@@ -69,6 +69,9 @@ class SchedulingPostgresTest {
         context.registerBean(SchedulingNotificationService.class);
         context.registerBean(SchedulingNotificationListener.class);
         context.registerBean(SchedulingService.class);
+        context.registerBean(com.backend.fourth.invigilator.service.AdminInvigilatorAssignmentService.class,
+                ()->org.mockito.Mockito.mock(com.backend.fourth.invigilator.service.AdminInvigilatorAssignmentService.class));
+        context.registerBean(ScheduleAutomationService.class);
         context.refresh();
         service=context.getBean(SchedulingService.class);
     }
@@ -87,7 +90,11 @@ class SchedulingPostgresTest {
         Map<String,Object> p=service.create(new SchedulingRequests.Period("Demo","2090/2091",1,"FINAL",day,day.plusDays(4),List.of(1,2,3,4,5,6,7),List.of(
                 new SchedulingRequests.DailySlot(LocalTime.of(9,0),LocalTime.of(11,0)),new SchedulingRequests.DailySlot(LocalTime.of(11,0),LocalTime.of(13,0)))));
         int id=((Number)p.get("period_id")).intValue();
-        service.select(id,new SchedulingRequests.Selection(0,Arrays.stream(courses).map(c->new SchedulingRequests.Course(c,120)).toList()));
+        // Configure the source catalog for this scenario, never a manual exam selection.
+        jdbc.update("UPDATE course SET is_active=false");
+        for (String code : courses) jdbc.update("UPDATE course SET is_active=true WHERE course_code=?",code);
+        service.update(id,0,new SchedulingRequests.Period("Demo","2090/2091",1,"FINAL",day,day.plusDays(4),List.of(1,2,3,4,5,6,7),List.of(
+                new SchedulingRequests.DailySlot(LocalTime.of(9,0),LocalTime.of(11,0)),new SchedulingRequests.DailySlot(LocalTime.of(11,0),LocalTime.of(13,0)))));
         return id;
     }
     private SchedulingService.Generation generate(int id,long revision) { return service.generate(id,new SchedulingRequests.Generate(revision,100000)); }
@@ -107,33 +114,46 @@ class SchedulingPostgresTest {
         assertNull(jdbc.queryForObject("SELECT examination_capacity FROM venue WHERE venue_id=99",Integer.class));
         assertTrue(jdbc.queryForObject("SELECT schedule_published FROM exam_session WHERE exam_session_id=1",Boolean.class));
     }
-    @Test void multipleDraftPeriodsCanShareCycleAndDeletingOneLeavesTheOtherIntact() {
-        int first=create("A");
-        int second=create("B");
-        generate(first,1);generate(second,1);
-        assertEquals(2,jdbc.queryForObject("SELECT count(*) FROM examination_period WHERE academic_year='2090/2091' AND semester=1 AND exam_type='FINAL'",Integer.class));
-        assertEquals(2,jdbc.queryForObject("SELECT count(*) FROM exam_session WHERE period_id IN (?,?)",Integer.class,first,second));
-        service.deleteDraftPeriod(first,2);
-        assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM examination_period WHERE period_id=?",Integer.class,first));
-        assertEquals(1,jdbc.queryForObject("SELECT count(*) FROM exam_session WHERE period_id=?",Integer.class,second));
-        int replacement=create("C");
-        assertNotEquals(first,replacement);
-    }
-    @Test void deletingDraftRequiresCurrentRevisionAndRejectsPublishedPeriod() {
+    @Test void duplicateCycleCreationIsRejected() {
         int id=create("A");
-        assertThrows(IllegalStateException.class,()->service.deleteDraftPeriod(id,0));
-        generate(id,1);staffEveryBooking(id);service.publish(id,2);
-        assertThrows(IllegalStateException.class,()->service.deleteDraftPeriod(id,3));
-        assertEquals(1,jdbc.queryForObject("SELECT count(*) FROM examination_period WHERE period_id=?",Integer.class,id));
+        assertThrows(IllegalStateException.class,()->create("A"));
+        assertEquals(1,jdbc.queryForObject("SELECT count(*) FROM examination_period",Integer.class));
+        assertEquals(id,((Number)service.list().getFirst().get("period_id")).intValue());
     }
-    @Test void publishedCycleCourseBlocksOtherDraftFromPublishing() {
-        int first=create("A");int second=create("A");
-        generate(first,1);generate(second,1);
-        staffEveryBooking(first);service.publish(first,2);
-        staffEveryBooking(second);
-        assertTrue(service.validate(second).problems().stream().anyMatch(problem->problem.contains("another legacy or published examination")));
-        assertThrows(IllegalStateException.class,()->service.publish(second,2));
-        assertEquals("DRAFT",service.detail(second).get("status"));
+    @Test void editingEmptySetupCannotCreateDuplicateCycle() {
+        create("A");
+        LocalDate day=LocalDate.of(2090,1,2);
+        var slots=List.of(new SchedulingRequests.DailySlot(LocalTime.of(9,0),LocalTime.of(11,0)));
+        var second=service.create(new SchedulingRequests.Period("Semester 2","2090/2091",2,"FINAL",day,day,List.of(1),slots));
+        int id=((Number)second.get("period_id")).intValue();
+        assertThrows(IllegalStateException.class,()->service.update(id,0,new SchedulingRequests.Period("Collision","2090/2091",1,"FINAL",day,day,List.of(1),slots)));
+        assertEquals(2,((Number)service.detail(id).get("semester")).intValue());
+    }
+    @Test void discoveryUsesOnlyActiveCoursesWithExactCycleRegistrations() {
+        int id=create("A","B","C");
+        jdbc.update("DELETE FROM student_registration WHERE course_code IN ('B','C')");
+        jdbc.update("INSERT INTO student_registration VALUES ('1','B','2089/2090',1),('1','C','2090/2091',2)");
+        assertTrue(((List<?>)service.detail(id).get("courses")).isEmpty());
+        assertEquals(ConstraintScheduler.Outcome.COMPLETE,generate(id,1).result().outcome());
+        assertEquals(List.of("A"),jdbc.queryForList("SELECT course_code FROM exam_session WHERE period_id=?",String.class,id));
+    }
+    @Test void noRegistrationsProducesActionableFailureWithoutSessions() {
+        int id=create("A");
+        jdbc.update("DELETE FROM student_registration WHERE course_code='A'");
+        var result=generate(id,1);
+        assertEquals(ConstraintScheduler.Outcome.INVALID_INPUT,result.result().outcome());
+        assertTrue(result.result().problems().getFirst().contains("registrations"));
+        assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM exam_session WHERE period_id=?",Integer.class,id));
+    }
+    @Test void newRegisteredCourseBlocksPublicationUntilRegenerated() {
+        int id=create("A","B");
+        jdbc.update("DELETE FROM student_registration WHERE course_code='B'");
+        generate(id,1);staffEveryBooking(id);
+        jdbc.update("INSERT INTO student_registration VALUES ('2','B','2090/2091',1)");
+        assertTrue(service.validate(id).problems().stream().anyMatch(p->p.contains("Regenerate")));
+        assertThrows(IllegalStateException.class,()->service.publish(id,2));
+        assertEquals(ConstraintScheduler.Outcome.COMPLETE,generate(id,2).result().outcome());
+        assertEquals(2,jdbc.queryForObject("SELECT count(*) FROM exam_session WHERE period_id=?",Integer.class,id));
     }
     @Test void completeWorkflowGeneratesAllocatesValidatesAndPublishes() {
         int id=create("A","B","C","D");
@@ -162,6 +182,31 @@ class SchedulingPostgresTest {
         assertEquals(3,revision(id));
         assertThrows(IllegalStateException.class,()->generate(id,1));
     }
+    @Test void failedRegenerationPreservesCourseSnapshotAndDraftStaffing() {
+        int id=create("A","B");generate(id,1);staffEveryBooking(id);
+        var before=service.detail(id);
+        jdbc.update("UPDATE course SET is_active=true WHERE course_code='C'");
+        var failed=service.generate(id,new SchedulingRequests.Generate(2,1));
+        assertEquals(ConstraintScheduler.Outcome.SEARCH_LIMIT_REACHED,failed.result().outcome());
+        var after=service.detail(id);
+        for (String field:List.of("courses","exams","allocations","assignments","revision")) assertEquals(before.get(field),after.get(field),field);
+    }
+    @Test void staffingErrorRollsBackTimetableReplacementAndRevision() {
+        int id=create("A","B");generate(id,1);staffEveryBooking(id);
+        var before=service.detail(id);
+        var assignments=context.getBean(com.backend.fourth.invigilator.service.AdminInvigilatorAssignmentService.class);
+        org.mockito.Mockito.when(assignments.autoAssignPeriod(org.mockito.ArgumentMatchers.eq(id),org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new IllegalStateException("Simulated staffing failure"));
+        assertThrows(IllegalStateException.class,()->context.getBean(ScheduleAutomationService.class).generate(id,new SchedulingRequests.Generate(2,100000)));
+        assertEquals(before,service.detail(id));
+    }
+    @Test void existingLegacyExamBlocksAutomaticGeneration() {
+        int id=create("A");
+        jdbc.update("INSERT INTO exam_session(course_code,exam_date,start_time,end_time,academic_year,semester,exam_type) VALUES ('A','2090-01-02','09:00','11:00','2090/2091',1,'FINAL')");
+        var failed=generate(id,1);
+        assertEquals(ConstraintScheduler.Outcome.INVALID_INPUT,failed.result().outcome());
+        assertEquals(List.of("A"),failed.result().unresolvedCourses());
+    }
     @Test void rejectsInvalidCourseAllocationDuplicateAndBookingOverlap() {
         int id=create("A","B");generate(id,1);
         int a=session(id,"A"),b=session(id,"B");
@@ -178,12 +223,13 @@ class SchedulingPostgresTest {
         assertThrows(IllegalArgumentException.class,()->service.edit(id,c,new SchedulingRequests.Edit(2,((java.sql.Date)a.get("exam_date")).toLocalDate(),LocalTime.of(10,0),List.of(2))));
         assertEquals(before,service.detail(id));
     }
-    @Test void successfulManualMoveReallocatesAndResetPreservesLegacyRecords() {
+    @Test void successfulManualMoveReallocatesAndRegenerationPreservesLegacyRecords() {
         int id=create("A");generate(id,1);
         service.edit(id,session(id,"A"),new SchedulingRequests.Edit(2,LocalDate.of(2090,1,3),LocalTime.of(11,0),List.of(2)));
         assertEquals(2,jdbc.queryForObject("SELECT venue_id FROM student_venue_allocation WHERE exam_session_id=?",Integer.class,session(id,"A")));
-        service.reset(id,3);
-        assertEquals(1,jdbc.queryForObject("SELECT count(*) FROM exam_session",Integer.class));
+        generate(id,3);
+        assertEquals(2,jdbc.queryForObject("SELECT count(*) FROM exam_session",Integer.class));
+        assertEquals(1,jdbc.queryForObject("SELECT count(*) FROM exam_session WHERE course_code='OLD'",Integer.class));
     }
     @Test void unavailableIntervalsAndCapacityChangesAreRespected() {
         int id=create("A");
