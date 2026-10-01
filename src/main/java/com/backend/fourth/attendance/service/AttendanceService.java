@@ -94,6 +94,16 @@ public class AttendanceService {
 
     @Transactional
     public AttendanceCheckInResponse checkIn(CheckInRequest request, Staff invigilator) {
+        Attendance attendance = prepareCheckIn(request, invigilator, LocalDateTime.now());
+        if (attendanceRepository.findByStudentComputerNumberAndExamSessionExamSessionId(
+                request.computerNumber(), request.examSessionId()).isPresent()) {
+            throw new IllegalStateException("Student has already been checked in for this examination");
+        }
+        return AttendanceCheckInResponse.from(attendanceRepository.save(attendance));
+    }
+
+    /** Shared authoritative validation; callers own the transaction and persistence. */
+    public Attendance prepareCheckIn(CheckInRequest request, Staff invigilator, LocalDateTime capturedAt) {
         if (!assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffIdAndAssignmentStatus(
                 request.examSessionId(), request.venueId(), invigilator.getStaffId(), "PUBLISHED")) {
             throw new IllegalArgumentException("You are not assigned to this examination venue");
@@ -114,11 +124,6 @@ public class AttendanceService {
                 .findByComputerNumberAndExamSessionId(request.computerNumber(), request.examSessionId())
                 .orElseThrow(() -> new IllegalArgumentException("Student is not allocated to this examination"));
 
-        if (attendanceRepository.findByStudentComputerNumberAndExamSessionExamSessionId(
-                request.computerNumber(), request.examSessionId()).isPresent()) {
-            throw new IllegalStateException("Student has already been checked in for this examination");
-        }
-
         AttendanceStatus status = AttendanceStatus.PRESENT;
         String alert = null;
         if (!allocation.getVenueId().equals(request.venueId())) {
@@ -130,12 +135,12 @@ public class AttendanceService {
         attendance.setExamSession(examSession);
         attendance.setVenue(venue);
         attendance.setVerifiedBy(invigilator);
-        attendance.setCheckInTime(LocalDateTime.now());
+        attendance.setCheckInTime(capturedAt);
         attendance.setVerificationMethod(parseVerification(request.verificationMethod()));
         attendance.setAttendanceStatus(status);
         attendance.setScriptsSubmitted(false);
         attendance.setAlertMessage(alert);
-        return AttendanceCheckInResponse.from(attendanceRepository.save(attendance));
+        return attendance;
     }
 
     @Transactional
@@ -154,7 +159,7 @@ public class AttendanceService {
      * Validates a scanned examination-pass QR JWT against the currently stored pass,
      * then confirms the pass period covers the requested exam session.
      */
-    private String resolveComputerNumberFromQr(String qrToken, Integer examSessionId) {
+    public String resolveComputerNumberFromQr(String qrToken, Integer examSessionId) {
         Claims claims = examPassQrService.parseAndValidate(qrToken);
         String computerNumber = claims.getSubject();
         if (computerNumber == null || computerNumber.isBlank()) {

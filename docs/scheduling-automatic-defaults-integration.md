@@ -1,8 +1,4 @@
-# Frontend handoff: automatic scheduling academic year
-
-## Required behavior
-
-The administrator does not choose an academic year. Remove the editable year input,
+rator does not choose an academic year. Remove the editable year input,
 year dropdown, and client-side year validation. Display the year as read-only text.
 Keep semester, exam type, dates, weekdays, and daily slots as user inputs.
 
