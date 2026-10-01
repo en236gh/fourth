@@ -26,6 +26,9 @@ public interface IncidentRepository extends JpaRepository<Incident, Integer> {
 
     List<Incident> findAllByOrderByOccurredAtDesc();
 
+    java.util.Optional<Incident> findFirstByExamSessionExamSessionIdAndStudentComputerNumberAndIncidentType(
+            Integer examSessionId, String computerNumber, com.backend.fourth.incident.entity.IncidentType incidentType);
+
     long countByOccurredAtBetween(LocalDateTime start, LocalDateTime end);
 
     long countByExamSessionExamSessionIdIn(List<Integer> examSessionIds);

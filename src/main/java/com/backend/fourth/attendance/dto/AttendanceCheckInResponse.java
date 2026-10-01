@@ -19,7 +19,8 @@ public record AttendanceCheckInResponse(
         VerificationMethod verificationMethod,
         AttendanceStatus attendanceStatus,
         Boolean scriptsSubmitted,
-        String alertMessage
+        String alertMessage,
+        Float faceMatchScore
 ) {
     public static AttendanceCheckInResponse from(Attendance attendance) {
         return new AttendanceCheckInResponse(
@@ -35,7 +36,8 @@ public record AttendanceCheckInResponse(
                 attendance.getVerificationMethod(),
                 attendance.getAttendanceStatus(),
                 attendance.getScriptsSubmitted(),
-                attendance.getAlertMessage()
+                attendance.getAlertMessage(),
+                attendance.getFaceMatchScore()
         );
     }
 }

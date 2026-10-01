@@ -32,6 +32,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -61,6 +62,7 @@ class AttendanceServiceTest {
     @Mock private com.backend.fourth.student.repository.StudentRegistrationRepository registrationRepository;
     @Mock private com.backend.fourth.exam.service.LecturerCourseAccess lecturerCourseAccess;
     @Mock private com.backend.fourth.common.security.CurrentStaffResolver currentStaffResolver;
+    @Mock private com.backend.fourth.face.repository.StudentFaceTemplateRepository faceTemplateRepository;
     @InjectMocks
     private AttendanceService attendanceService;
 
@@ -113,9 +115,42 @@ class AttendanceServiceTest {
         when(attendanceRepository.findByStudentComputerNumberAndExamSessionExamSessionId("2022004264", 5))
                 .thenReturn(Optional.empty());
 
+        when(faceTemplateRepository.existsById("2022004264")).thenReturn(true);
+
         var response = attendanceService.lookupStudentByQr(new QrLookupRequest(token, 5), createStaff());
         assertEquals("2022004264", response.computerNumber());
         assertEquals("Main LT 1", response.allocatedVenueName());
+        assertTrue(response.faceEnrolled());
+    }
+
+    @Test
+    void plainCheckInCannotClaimFaceVerification() {
+        for (String method : new String[]{"QR_AND_FACE", "FACE_RECOGNITION", "QR_AND_FACIAL"}) {
+            assertThrows(IllegalArgumentException.class, () -> attendanceService.checkIn(
+                    new CheckInRequest("2022004264", 1, 1, method), createStaff()));
+        }
+        org.mockito.Mockito.verifyNoInteractions(attendanceRepository, assignmentRepository);
+    }
+
+    @Test
+    void faceCheckInStoresScoreAndOverrideReason() {
+        when(registrationRepository.existsByComputerNumberAndCourseCodeAndAcademicYearAndSemester(any(), any(), any(), any())).thenReturn(true);
+        when(assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffIdAndAssignmentStatus(1, 1, 2, "PUBLISHED")).thenReturn(true);
+        when(studentRepository.findByComputerNumber("2022004264")).thenReturn(Optional.of(createStudent()));
+        when(examSessionRepository.findById(1)).thenReturn(Optional.of(createExamSession()));
+        when(venueRepository.findById(1)).thenReturn(Optional.of(createVenue()));
+        when(allocationRepository.findByComputerNumberAndExamSessionId("2022004264", 1)).thenReturn(Optional.of(createAllocation()));
+        when(attendanceRepository.findByStudentComputerNumberAndExamSessionExamSessionId("2022004264", 1)).thenReturn(Optional.empty());
+        when(attendanceRepository.save(any(Attendance.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var response = attendanceService.checkInWithFace("2022004264", 1, 1, createStaff(), 0.38f, "Checked NRC", "alert");
+
+        assertEquals(com.backend.fourth.attendance.entity.VerificationMethod.QR_AND_FACE, response.verificationMethod());
+        assertEquals(0.38f, response.faceMatchScore());
+        assertEquals("alert", response.alertMessage());
+        var saved = org.mockito.ArgumentCaptor.forClass(Attendance.class);
+        org.mockito.Mockito.verify(attendanceRepository).save(saved.capture());
+        assertEquals("Checked NRC", saved.getValue().getFaceOverrideReason());
     }
 
     @Test

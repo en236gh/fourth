@@ -38,6 +38,27 @@ public class GlobalExceptionHandler {
         return ApiResponse.error("Invalid request format or missing parameter. Check the documented field names, dates, times and numeric values.");
     }
 
+    @ExceptionHandler(com.backend.fourth.face.client.FacePhotoRejectedException.class)
+    public org.springframework.http.ResponseEntity<ApiResponse<Void>> handleFacePhotoRejected(
+            com.backend.fourth.face.client.FacePhotoRejectedException ex) {
+        // 422: the request was well-formed but the photo cannot be used; the client should retake it.
+        return org.springframework.http.ResponseEntity.status(422).body(ApiResponse.error(ex.getMessage()));
+    }
+
+    @ExceptionHandler(com.backend.fourth.face.client.FaceServiceUnavailableException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public ApiResponse<Void> handleFaceServiceUnavailable(com.backend.fourth.face.client.FaceServiceUnavailableException ex) {
+        log.warn("Face service call failed: {}", ex.getMessage());
+        return ApiResponse.error("Face verification is temporarily unavailable. Check the student in with the QR code instead.");
+    }
+
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public org.springframework.http.ResponseEntity<ApiResponse<Void>> handleUploadTooLarge(
+            org.springframework.web.multipart.MaxUploadSizeExceededException ex) {
+        return org.springframework.http.ResponseEntity.status(413)
+                .body(ApiResponse.error("The uploaded photo is too large. Use an image under 5 MB."));
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ApiResponse<Void> handleBadRequest(IllegalArgumentException ex) {

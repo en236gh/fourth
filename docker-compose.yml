@@ -5,4 +5,19 @@ services:
       - "8080:8080"
     env_file:
       - .env
+    environment:
+      FACE_SERVICE_URL: http://face-service:8000
+    depends_on:
+      - face-service
     restart: unless-stopped
+
+  face-service:
+    build: ./face-service
+    environment:
+      FACE_SERVICE_API_KEY: ${FACE_SERVICE_API_KEY:-}
+    volumes:
+      - insightface-models:/models
+    restart: unless-stopped
+
+volumes:
+  insightface-models:

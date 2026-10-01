@@ -7,5 +7,6 @@ public enum IncidentType {
     MEDICAL_EMERGENCY,
     DISTURBANCE,
     LATE_ARRIVAL,
+    IMPERSONATION,
     OTHER
 }

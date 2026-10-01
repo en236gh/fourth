@@ -64,6 +64,34 @@ public class IncidentService {
         return toResponse(incidentRepository.save(incident));
     }
 
+    /**
+     * Raised automatically when a face clearly does not match the enrolled student.
+     * Repeated failed captures for the same student and exam reuse the first incident.
+     */
+    @Transactional
+    public Integer recordSuspectedImpersonation(
+            Integer examSessionId, Integer venueId, String computerNumber, Staff invigilator, String description) {
+        return incidentRepository
+                .findFirstByExamSessionExamSessionIdAndStudentComputerNumberAndIncidentType(
+                        examSessionId, computerNumber, IncidentType.IMPERSONATION)
+                .map(Incident::getIncidentId)
+                .orElseGet(() -> {
+                    Incident incident = new Incident();
+                    incident.setExamSession(examSessionRepository.findById(examSessionId)
+                            .orElseThrow(() -> new IllegalArgumentException("Exam session not found")));
+                    incident.setVenue(venueRepository.findById(venueId)
+                            .orElseThrow(() -> new IllegalArgumentException("Venue not found")));
+                    incident.setStudent(studentRepository.findByComputerNumber(computerNumber)
+                            .orElseThrow(() -> new IllegalArgumentException("Student not found")));
+                    incident.setReportedBy(invigilator);
+                    incident.setIncidentType(IncidentType.IMPERSONATION);
+                    incident.setDescription(description);
+                    incident.setSeverity("MAJOR");
+                    incident.setOccurredAt(LocalDateTime.now());
+                    return incidentRepository.save(incident).getIncidentId();
+                });
+    }
+
     @Transactional(readOnly = true)
     public List<IncidentResponse> listForAdmin() {
         return incidentRepository.findAllByOrderByOccurredAtDesc().stream()

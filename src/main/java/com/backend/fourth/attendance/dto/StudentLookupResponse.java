@@ -7,6 +7,7 @@ public record StudentLookupResponse(
         String photoPath,
         Integer allocatedVenueId,
         String allocatedVenueName,
-        boolean alreadyCheckedIn
+        boolean alreadyCheckedIn,
+        boolean faceEnrolled
 ) {
 }

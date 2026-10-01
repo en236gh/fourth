@@ -51,6 +51,7 @@ public class AttendanceService {
     private final com.backend.fourth.student.repository.StudentRegistrationRepository registrationRepository;
     private final com.backend.fourth.exam.service.LecturerCourseAccess lecturerCourseAccess;
     private final com.backend.fourth.common.security.CurrentStaffResolver currentStaffResolver;
+    private final com.backend.fourth.face.repository.StudentFaceTemplateRepository faceTemplateRepository;
 
     @Transactional(readOnly = true)
     public StudentLookupResponse lookupStudent(String computerNumber, Integer examSessionId, Staff invigilator) {
@@ -83,7 +84,8 @@ public class AttendanceService {
                 student.getPhotoPath(),
                 allocatedVenue.getVenueId(),
                 allocatedVenue.getVenueName(),
-                alreadyCheckedIn);
+                alreadyCheckedIn,
+                faceTemplateRepository.existsById(computerNumber));
     }
 
     @Transactional(readOnly = true)
@@ -94,48 +96,79 @@ public class AttendanceService {
 
     @Transactional
     public AttendanceCheckInResponse checkIn(CheckInRequest request, Staff invigilator) {
+        VerificationMethod method = parseVerification(request.verificationMethod());
+        if (method != VerificationMethod.COMPUTER && method != VerificationMethod.QR_CODE) {
+            // A face method is only recorded after the backend has actually compared the face.
+            throw new IllegalArgumentException(
+                    "Face verification must use /api/attendance/check-in-by-qr-and-face");
+        }
+        CheckInTarget target = validateCheckIn(
+                request.computerNumber(), request.examSessionId(), request.venueId(), invigilator);
+        return AttendanceCheckInResponse.from(record(target, invigilator, method, null, null, null));
+    }
+
+    /** Records a QR + face check-in. Re-runs every check because face inference happens outside a transaction. */
+    @Transactional
+    public AttendanceCheckInResponse checkInWithFace(
+            String computerNumber, Integer examSessionId, Integer venueId, Staff invigilator,
+            float faceMatchScore, String overrideReason, String alertMessage) {
+        CheckInTarget target = validateCheckIn(computerNumber, examSessionId, venueId, invigilator);
+        return AttendanceCheckInResponse.from(record(
+                target, invigilator, VerificationMethod.QR_AND_FACE, faceMatchScore, overrideReason, alertMessage));
+    }
+
+    public record CheckInTarget(Student student, ExamSession examSession, Venue venue) {
+    }
+
+    /** Every rule a check-in must satisfy, without writing anything. */
+    @Transactional(readOnly = true)
+    public CheckInTarget validateCheckIn(String computerNumber, Integer examSessionId, Integer venueId, Staff invigilator) {
         if (!assignmentRepository.existsByExamSessionIdAndVenueIdAndStaffIdAndAssignmentStatus(
-                request.examSessionId(), request.venueId(), invigilator.getStaffId(), "PUBLISHED")) {
+                examSessionId, venueId, invigilator.getStaffId(), "PUBLISHED")) {
             throw new IllegalArgumentException("You are not assigned to this examination venue");
         }
 
-        Student student = studentRepository.findByComputerNumber(request.computerNumber())
+        Student student = studentRepository.findByComputerNumber(computerNumber)
                 .orElseThrow(() -> new IllegalArgumentException("Student not found"));
-        ExamSession examSession = examSessionRepository.findById(request.examSessionId())
+        ExamSession examSession = examSessionRepository.findById(examSessionId)
                 .orElseThrow(() -> new IllegalArgumentException("Exam session not found"));
-        requireEligibility(examSession, request.computerNumber());
+        requireEligibility(examSession, computerNumber);
         if ("COMPLETED".equals(examSession.getStatus())) {
             throw new IllegalStateException("Examination has already been completed");
         }
-        Venue venue = venueRepository.findById(request.venueId())
+        Venue venue = venueRepository.findById(venueId)
                 .orElseThrow(() -> new IllegalArgumentException("Venue not found"));
 
         StudentVenueAllocation allocation = allocationRepository
-                .findByComputerNumberAndExamSessionId(request.computerNumber(), request.examSessionId())
+                .findByComputerNumberAndExamSessionId(computerNumber, examSessionId)
                 .orElseThrow(() -> new IllegalArgumentException("Student is not allocated to this examination"));
 
         if (attendanceRepository.findByStudentComputerNumberAndExamSessionExamSessionId(
-                request.computerNumber(), request.examSessionId()).isPresent()) {
+                computerNumber, examSessionId).isPresent()) {
             throw new IllegalStateException("Student has already been checked in for this examination");
         }
 
-        AttendanceStatus status = AttendanceStatus.PRESENT;
-        String alert = null;
-        if (!allocation.getVenueId().equals(request.venueId())) {
+        if (!allocation.getVenueId().equals(venueId)) {
             throw new IllegalArgumentException("Student must check in at their allocated examination venue");
         }
+        return new CheckInTarget(student, examSession, venue);
+    }
 
+    private Attendance record(CheckInTarget target, Staff invigilator, VerificationMethod method,
+                              Float faceMatchScore, String faceOverrideReason, String alertMessage) {
         Attendance attendance = new Attendance();
-        attendance.setStudent(student);
-        attendance.setExamSession(examSession);
-        attendance.setVenue(venue);
+        attendance.setStudent(target.student());
+        attendance.setExamSession(target.examSession());
+        attendance.setVenue(target.venue());
         attendance.setVerifiedBy(invigilator);
         attendance.setCheckInTime(LocalDateTime.now());
-        attendance.setVerificationMethod(parseVerification(request.verificationMethod()));
-        attendance.setAttendanceStatus(status);
+        attendance.setVerificationMethod(method);
+        attendance.setAttendanceStatus(AttendanceStatus.PRESENT);
         attendance.setScriptsSubmitted(false);
-        attendance.setAlertMessage(alert);
-        return AttendanceCheckInResponse.from(attendanceRepository.save(attendance));
+        attendance.setAlertMessage(alertMessage);
+        attendance.setFaceMatchScore(faceMatchScore);
+        attendance.setFaceOverrideReason(faceOverrideReason);
+        return attendanceRepository.save(attendance);
     }
 
     @Transactional
@@ -154,7 +187,8 @@ public class AttendanceService {
      * Validates a scanned examination-pass QR JWT against the currently stored pass,
      * then confirms the pass period covers the requested exam session.
      */
-    private String resolveComputerNumberFromQr(String qrToken, Integer examSessionId) {
+    @Transactional(readOnly = true)
+    public String resolveComputerNumberFromQr(String qrToken, Integer examSessionId) {
         Claims claims = examPassQrService.parseAndValidate(qrToken);
         String computerNumber = claims.getSubject();
         if (computerNumber == null || computerNumber.isBlank()) {

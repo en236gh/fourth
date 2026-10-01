@@ -3,19 +3,24 @@ package com.backend.fourth.attendance.controller;
 import com.backend.fourth.attendance.dto.AttendanceCheckInResponse;
 import com.backend.fourth.attendance.dto.AttendanceSummaryResponse;
 import com.backend.fourth.attendance.dto.CheckInRequest;
+import com.backend.fourth.attendance.dto.FaceCheckInForm;
+import com.backend.fourth.attendance.dto.FaceCheckInResponse;
 import com.backend.fourth.attendance.dto.QrCheckInRequest;
 import com.backend.fourth.attendance.dto.QrLookupRequest;
 import com.backend.fourth.attendance.dto.ScriptsCollectedRequest;
 import com.backend.fourth.attendance.dto.StudentLookupResponse;
 import com.backend.fourth.attendance.service.AttendanceService;
+import com.backend.fourth.attendance.service.FaceCheckInService;
 import com.backend.fourth.common.ApiResponse;
 import com.backend.fourth.common.security.CurrentStaffResolver;
 import com.backend.fourth.staff.entity.Staff;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.IOException;
 import java.util.List;
 
 @RestController
@@ -23,6 +28,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AttendanceController {
     private final AttendanceService attendanceService;
+    private final FaceCheckInService faceCheckInService;
     private final CurrentStaffResolver currentStaffResolver;
 
     @GetMapping("/lookup")
@@ -59,6 +65,18 @@ public class AttendanceController {
         return ApiResponse.success(
                 "Attendance recorded from QR",
                 attendanceService.checkInByQr(request, invigilator));
+    }
+
+    /** QR identifies the student, the live photo confirms it. Always 200 for a decision; see Outcome. */
+    @PostMapping(value = "/check-in-by-qr-and-face", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAuthority('INVIGILATOR')")
+    public ApiResponse<FaceCheckInResponse> checkInByQrAndFace(@Valid @ModelAttribute FaceCheckInForm form)
+            throws IOException {
+        Staff invigilator = currentStaffResolver.requireCurrentStaff();
+        FaceCheckInResponse response = faceCheckInService.checkIn(
+                form.qrToken(), form.examSessionId(), form.venueId(),
+                form.image().getBytes(), form.image().getContentType(), form.overrideReason(), invigilator);
+        return ApiResponse.success(response.message(), response);
     }
 
     @GetMapping("/exam/{examSessionId}")

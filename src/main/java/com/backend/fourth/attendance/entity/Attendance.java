@@ -52,4 +52,10 @@ public class Attendance {
 
     @Column(name = "alert_message")
     private String alertMessage;
+
+    @Column(name = "face_match_score")
+    private Float faceMatchScore;
+
+    @Column(name = "face_override_reason")
+    private String faceOverrideReason;
 }
