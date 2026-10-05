@@ -124,6 +124,30 @@ class OfflineAttendancePostgresTest {
         var student=snapshot.students().getFirst(); assertEquals("2022000001",student.get("computerNumber"));
         assertEquals("/photo1",student.get("photoPath")); assertFalse(student.containsKey("qrToken"));
     }
+    @Test void manualSetupRepairsMissingOfflineSchemaAndCanBeRepeatedWithoutDataLoss() throws Exception {
+        jdbc.execute("ALTER TABLE attendance DROP COLUMN client_scan_id, DROP COLUMN processed_at");
+        jdbc.execute("DROP TABLE attendance_sync_scan, attendance_offline_roster, attendance_offline_snapshot");
+        var failure = assertThrows(org.springframework.jdbc.BadSqlGrammarException.class,
+                () -> service.download(actor));
+        assertEquals("42P01", failure.getSQLException().getSQLState());
+
+        String setup = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "supabase/phase_27_offline_attendance_sync.sql"));
+        jdbc.execute(setup);
+        snapshot = service.download(actor);
+        var scan = scan();
+        var accepted = send(scan);
+        assertEquals("ACCEPTED", accepted.outcome());
+        var original = jdbc.queryForMap("SELECT * FROM attendance");
+
+        jdbc.execute(setup);
+        assertEquals(original, jdbc.queryForMap("SELECT * FROM attendance"));
+        assertEquals(accepted, send(scan));
+        assertEquals(1, count("attendance_offline_snapshot"));
+        assertEquals(1, count("attendance_offline_roster"));
+        assertEquals(1, count("attendance_sync_scan"));
+        assertEquals(1, service.download(actor).students().size());
+    }
     @Test void acceptedRetryIsIdenticalAndRetainsCapturedTime() {
         var scan=scan(); var first=send(scan); assertEquals("ACCEPTED",first.outcome());
         scan.put("computerNumber","2022000002"); // A UUID denotes the first outcome, even with changed payload.

@@ -18,6 +18,32 @@ The usual `{ "success": true, "message": "...", "data": ... }` envelope contains
 
 The server retains the snapshot's roster membership. Downloading another snapshot does not invalidate an earlier one. A snapshot is historical evidence of roster membership, not permission to bypass current attendance rules. There is no automatic age-based expiry or cleanup in this migration; any future retention policy must account for unsynced queues and retry guarantees.
 
+## Database setup for existing deployments
+
+The application has `spring.flyway.enabled=false`, so a backend restart does not
+apply V40. Before using download or sync, run the complete
+[offline attendance setup script](../supabase/phase_27_offline_attendance_sync.sql)
+in the backend database's Supabase SQL Editor. It installs only the offline
+schema in one transaction and can be rerun without clearing attendance,
+snapshots, or scan outcomes. Do not enable the full historical migration chain
+for this fix: it includes data resets and duplicate V27 versions.
+
+A missing `attendance_offline_snapshot` table causes the first download insert
+to fail with PostgreSQL SQLSTATE `42P01` and HTTP 500. Verify setup with:
+
+```sql
+SELECT to_regclass('public.attendance_offline_snapshot'),
+       to_regclass('public.attendance_offline_roster'),
+       to_regclass('public.attendance_sync_scan');
+SELECT column_name FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'attendance'
+  AND column_name IN ('client_scan_id', 'processed_at');
+```
+
+Expect three non-null table names and both columns. Then retry the authenticated
+`GET /api/attendance/offline-exam-data` request. If it still fails, inspect the
+server exception; schema setup does not resolve unrelated database failures.
+
 ## Sync
 
 `POST /api/attendance/sync`

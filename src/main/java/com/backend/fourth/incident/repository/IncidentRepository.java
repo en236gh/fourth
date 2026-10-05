@@ -7,8 +7,12 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public interface IncidentRepository extends JpaRepository<Incident, Integer> {
+    @Query("SELECT i FROM Incident i JOIN FETCH i.examSession LEFT JOIN FETCH i.venue WHERE i.incidentId = :incidentId")
+    Optional<Incident> findWithExamAndVenueByIncidentId(@Param("incidentId") Integer incidentId);
+
     List<Incident> findByReportedByStaffIdOrderByOccurredAtDesc(Integer staffId);
 
     List<Incident> findByExamSessionExamSessionIdInOrderByOccurredAtDesc(List<Integer> examSessionIds);
