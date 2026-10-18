@@ -19,7 +19,7 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -33,6 +33,11 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @EnableMethodSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
+    private static final List<String> DEPLOYED_FRONTEND_ORIGINS = List.of(
+            "https://student-portal-vsuj.onrender.com",
+            "https://administrator-dashboard.onrender.com",
+            "https://lecturer-dashboard.onrender.com");
+
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
     @Value("${app.cors.allowed-origins:http://localhost:3000,http://127.0.0.1:3000}")
@@ -60,9 +65,12 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        List<String> origins = Arrays.stream(allowedOrigins.split(","))
+        List<String> origins = Stream.concat(
+                        Arrays.stream(allowedOrigins.split(",")),
+                        DEPLOYED_FRONTEND_ORIGINS.stream())
                 .map(String::trim)
                 .filter(origin -> !origin.isEmpty())
+                .distinct()
                 .toList();
         config.setAllowedOrigins(origins);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
