@@ -32,7 +32,7 @@ public class AuthController {
 
     @PostMapping("/login")
     public ApiResponse<TokenResponse> login(@Valid @RequestBody LoginRequest request) {
-        Staff staff = staffRepository.findByEmail(request.email())
+        Staff staff = staffRepository.findByEmailIgnoreCase(request.email().trim())
                 .orElseThrow(() -> new IllegalArgumentException("Invalid credentials"));
         if (staff.getPasswordHash() == null
                 || !passwordEncoder.matches(request.password(), staff.getPasswordHash())) {
