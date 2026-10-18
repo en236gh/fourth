@@ -45,26 +45,27 @@ class SchedulingHttpFlowTest {
         LocalDate start=jdbc.queryForObject("SELECT exam_date FROM exam_session WHERE course_code='DEMOEXT'",java.sql.Date.class).toLocalDate();
         String year=jdbc.queryForObject("SELECT academic_year FROM exam_session WHERE course_code='DEMOEXT'",String.class);
         String root="/api/admin/examination-periods";
+        // Keep the demo's legacy reservation and impossible-capacity example outside the active catalog.
+        jdbc.update("UPDATE course SET is_active=false WHERE course_code NOT IN ('DEMO101','DEMO102','DEMO201','DEMO301')");
         var created=request("POST",root,"""
                 {"name":"HTTP demonstration","semester":1,"examType":"FINAL",
                 "startDate":"%s","endDate":"%s","daysOfWeek":[1,2,3,4,5],
                 "slots":[{"startTime":"09:00","endTime":"11:00"},{"startTime":"11:00","endTime":"13:00"}]}
                 """.formatted(start,start.plusDays(4)),admin,200);
-        assertEquals(year,created.path("data").path("academic_year").asText());
-        int id=created.path("data").path("period_id").asInt();assertTrue(id>0);
+        assertEquals(year,created.path("data").path("generation").path("period").path("academic_year").asText());
+        int id=created.path("data").path("generation").path("period").path("period_id").asInt();assertTrue(id>0);
         String period=root+"/"+id;
-        request("PUT",period+"/courses","""
-                {"revision":0,"courses":[{"courseCode":"DEMO101","durationMinutes":120},
-                {"courseCode":"DEMO102","durationMinutes":120},{"courseCode":"DEMO201","durationMinutes":120},
-                {"courseCode":"DEMO301","durationMinutes":120}]}
-                """,admin,200);
-        var generated=request("POST",period+"/generate","{\"revision\":1,\"searchLimit\":100000}",admin,200);
-        assertEquals("COMPLETE",generated.path("data").path("result").path("outcome").asText());
+        assertEquals("COMPLETE",created.path("data").path("generation").path("result").path("outcome").asText());
+        assertTrue(created.path("data").path("validation").path("valid").asBoolean());
+        request("PUT",period+"/courses","{}",admin,403);
+        request("DELETE",period+"?revision=1",null,admin,403);
+        var regenerated=request("POST",period+"/generate","{\"revision\":1,\"searchLimit\":100000}",admin,200);
+        assertTrue(regenerated.path("data").path("validation").path("valid").asBoolean());
+        assertEquals(2,regenerated.path("data").path("generation").path("period").path("revision").asInt());
+        assertEquals(4,jdbc.queryForObject("SELECT count(*) FROM exam_session WHERE period_id=?",Integer.class,id));
         int session=jdbc.queryForObject("SELECT exam_session_id FROM exam_session WHERE period_id=? AND course_code='DEMO101'",Integer.class,id);
         assertEquals(0,request("GET","/api/student/examinations",null,student,200).path("data").size());
         request("GET","/api/allocation/exam-session/"+session,null,lecturer,403);
-        request("POST",period+"/publish","{\"revision\":2}",admin,409);
-        request("POST",period+"/auto-assign-invigilators","{}",admin,200);
         assertTrue(request("GET",period+"/validation",null,admin,200).path("data").path("valid").asBoolean());
         request("POST",period+"/publish","{\"revision\":2}",admin,200);
         assertEquals(3,request("GET","/api/student/examinations",null,student,200).path("data").size());

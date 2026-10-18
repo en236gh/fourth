@@ -1,5 +1,7 @@
 # Scheduling implementation findings
 
+> Workflow update: [Administrator-triggered automatic scheduling](draft-period-lifecycle.md) supersedes the manual course-selection and separate staffing flow below, including creation/generation response shapes. Delete and reset-draft actions are removed.
+
 The existing backend uses Spring Boot, JPA/JDBC and PostgreSQL. `exam_session`
 identifies a course examination, `exam_venue` its booked venues, and
 `student_venue_allocation` already has a student/exam primary key.

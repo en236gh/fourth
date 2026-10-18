@@ -104,6 +104,7 @@ public class AttendanceService {
         }
         CheckInTarget target = validateCheckIn(
                 request.computerNumber(), request.examSessionId(), request.venueId(), invigilator);
+        rejectIfAlreadyCheckedIn(request.computerNumber(), request.examSessionId());
         return AttendanceCheckInResponse.from(record(target, invigilator, method, null, null, null));
     }
 
@@ -113,7 +114,8 @@ public class AttendanceService {
             String computerNumber, Integer examSessionId, Integer venueId, Staff invigilator,
             float faceMatchScore, String overrideReason, String alertMessage) {
         CheckInTarget target = validateCheckIn(computerNumber, examSessionId, venueId, invigilator);
-        return AttendanceCheckInResponse.from(record(
+            rejectIfAlreadyCheckedIn(computerNumber, examSessionId);
+            return AttendanceCheckInResponse.from(record(
                 target, invigilator, VerificationMethod.QR_AND_FACE, faceMatchScore, overrideReason, alertMessage));
     }
 
@@ -143,15 +145,37 @@ public class AttendanceService {
                 .findByComputerNumberAndExamSessionId(computerNumber, examSessionId)
                 .orElseThrow(() -> new IllegalArgumentException("Student is not allocated to this examination"));
 
-        if (attendanceRepository.findByStudentComputerNumberAndExamSessionExamSessionId(
-                computerNumber, examSessionId).isPresent()) {
-            throw new IllegalStateException("Student has already been checked in for this examination");
-        }
-
         if (!allocation.getVenueId().equals(venueId)) {
             throw new IllegalArgumentException("Student must check in at their allocated examination venue");
         }
         return new CheckInTarget(student, examSession, venue);
+    }
+
+    private void rejectIfAlreadyCheckedIn(String computerNumber, Integer examSessionId) {
+        if (attendanceRepository.findByStudentComputerNumberAndExamSessionExamSessionId(
+                computerNumber, examSessionId).isPresent()) {
+            throw new IllegalStateException("Student has already been checked in for this examination");
+        }
+    }
+
+    /** Shared authoritative validation; callers own the transaction and persistence. */
+    public Attendance prepareCheckIn(CheckInRequest request, Staff invigilator, LocalDateTime capturedAt) {
+        VerificationMethod method = parseVerification(request.verificationMethod());
+        if (method != VerificationMethod.COMPUTER && method != VerificationMethod.QR_CODE) {
+            throw new IllegalArgumentException("Unsupported verification method");
+        }
+        CheckInTarget target = validateCheckIn(
+                request.computerNumber(), request.examSessionId(), request.venueId(), invigilator);
+        Attendance attendance = new Attendance();
+        attendance.setStudent(target.student());
+        attendance.setExamSession(target.examSession());
+        attendance.setVenue(target.venue());
+        attendance.setVerifiedBy(invigilator);
+        attendance.setCheckInTime(capturedAt);
+        attendance.setVerificationMethod(method);
+        attendance.setAttendanceStatus(AttendanceStatus.PRESENT);
+        attendance.setScriptsSubmitted(false);
+        return attendance;
     }
 
     private Attendance record(CheckInTarget target, Staff invigilator, VerificationMethod method,
