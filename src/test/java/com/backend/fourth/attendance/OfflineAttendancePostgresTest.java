@@ -6,6 +6,7 @@ import com.backend.fourth.allocation.entity.StudentVenueAllocation;
 import com.backend.fourth.allocation.repository.StudentVenueAllocationRepository;
 import com.backend.fourth.exam.entity.ExamSession;
 import com.backend.fourth.exam.repository.ExamSessionRepository;
+import com.backend.fourth.face.repository.StudentFaceTemplateRepository;
 import com.backend.fourth.invigilator.repository.InvigilatorAssignmentRepository;
 import com.backend.fourth.staff.entity.Staff;
 import com.backend.fourth.staff.repository.StaffRepository;
@@ -101,7 +102,9 @@ class OfflineAttendancePostgresTest {
         qr=mock(ExamPassQrService.class);
         var attendance = new AttendanceService(mock(AttendanceRepository.class), students, exams, venues, allocations, assignments,
                 mock(StaffRepository.class),mock(ExaminationPassRepository.class),qr,registrations,
-                mock(com.backend.fourth.exam.service.LecturerCourseAccess.class),mock(com.backend.fourth.common.security.CurrentStaffResolver.class));
+                mock(com.backend.fourth.exam.service.LecturerCourseAccess.class),
+                mock(com.backend.fourth.common.security.CurrentStaffResolver.class),
+                mock(StudentFaceTemplateRepository.class));
         service = new OfflineAttendanceService(jdbc,attendance,new DataSourceTransactionManager(ds));
         actor=new Staff(); actor.setStaffId(1);
         snapshot=service.download(actor);
